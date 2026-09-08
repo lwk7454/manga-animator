@@ -16,3 +16,5 @@ build/
 .DS_Store
 # briefs (working notes)
 .hermes-briefs/
+# editable-install metadata (build artifact)
+src/koma.egg-info/
