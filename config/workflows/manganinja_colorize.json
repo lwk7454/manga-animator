@@ -1,0 +1,44 @@
+{
+  "12": {
+    "class_type": "MangaNinjiaLoader",
+    "inputs": {
+      "checkpoint": "DreamShaper_8_pruned_sdm.safetensors",
+      "clip": "clip_l.safetensors",
+      "controlnet": "control_v11p_sd15_lineart.pth"
+    }
+  },
+  "13": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "panel.png"
+    }
+  },
+  "14": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "sheet.png"
+    }
+  },
+  "16": {
+    "class_type": "MangaNinjiaSampler",
+    "inputs": {
+      "model": ["12", 0],
+      "image": ["14", 0],
+      "lineart_image": ["13", 0],
+      "seed": 0,
+      "width": 512,
+      "height": 512,
+      "guidance_scale_ref": 9.0,
+      "guidance_scale_point": 15.0,
+      "steps": 25,
+      "is_lineart": true
+    }
+  },
+  "17": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": ["16", 0],
+      "filename_prefix": "koma_color"
+    }
+  }
+}

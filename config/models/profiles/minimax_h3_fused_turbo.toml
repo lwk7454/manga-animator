@@ -1,0 +1,44 @@
+# MiniMax H3 Fused Turbo (INT8 ConvRot) — single-file fl2va + ref2va profile.
+# Source: MATLOWAI/minimax-h3-fused-turbo-int8-convrot (merge of pruned Ref-Delta-Fused
+# r1024 base + lightx2v 8-step turbo @1.0 + Mystic v2.0 @0.7, INT8 ConvRot post-merge).
+# The ref2va delta is SVD-fused in, so ONE file serves both the i2v lane (B3)
+# and the identity/regen lane (decision #012) — replaces the separate ref2va
+# weight download entirely. Net disk delta vs stock: ~1.5GB.
+# SLA sparse-attention node STRIPPED (3rd-party pack, py3.13 risk) — dense
+# attention; audio slightly softer, ~40% slower than SLA claims, still 4-step.
+# VRAM (no-offload, staged): text-encode leg 14.61 (nvfp4 encoder, offloads);
+# sample leg 20.98 unet + 3.17 int8 video vae = 24.15GB of 24 — fits WITHOUT
+# live-LoRA backups (the entire point of the fused file).
+id = "minimax_h3_fused_turbo"
+kind = "video_i2v"
+provider = "comfyui"
+workflow = "workflows/minimax_h3_fused_i2v.json"
+components = {}
+
+[inject]
+unet        = "127.inputs.unet_name"
+clip        = "128.inputs.clip_name"
+keyframe    = "131.inputs.first_frame"
+motion      = "131.inputs.prompt"
+length      = "131.inputs.length"
+width       = "131.inputs.width"
+height      = "131.inputs.height"
+seed        = "129.inputs.noise_seed"
+steps       = "124.inputs.steps"
+fps         = "130.inputs.fps"
+output      = "92.inputs.filename_prefix"
+frame_grid  = "auto"          # live /object_info; 17n+5 expected (core nodes)
+
+[defaults]
+width  = 768
+height = 448
+steps  = 4                    # 4-or-8 NFE turbo; run at 4 (README ladder)
+length = 173                  # 10s@... snapped on 17n+5; audio-first refines live
+
+[setup]
+weights = [
+  {url="https://huggingface.co/MATLOWAI/minimax-h3-fused-turbo-int8-convrot/resolve/main/diffusion_models/minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors", dir="diffusion_models"},
+  {url="https://huggingface.co/GuangyuanSD/minimax_h3_video_vae_int8_convrot/resolve/main/minimax_h3_video_vae_int8_convrot.safetensors", dir="vae"},
+]
+custom_nodes = []             # core nodes only (SLA deliberately excluded)
+provenance = "MATLOWAI merge (xmarre fused base + Kijai lightx2v turbo + Mystic v2.0); MiniMax community license"

@@ -1,0 +1,214 @@
+{
+  "1": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "Extend this image to fill the new canvas. Keep the art style, characters, composition and all text exactly unchanged. Fill the added areas by seamlessly continuing the existing scene."
+    }
+  },
+  "92": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "122",
+        0
+      ],
+      "filename_prefix": "koma_kf_outpaint"
+    }
+  },
+  "115": {
+    "class_type": "EmptySD3LatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 576,
+      "batch_size": 1
+    }
+  },
+  "119": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    }
+  },
+  "120": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    }
+  },
+  "122": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "125",
+        0
+      ],
+      "vae": [
+        "119",
+        0
+      ]
+    }
+  },
+  "124": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "model": [
+        "142",
+        0
+      ],
+      "scheduler": "simple",
+      "steps": 8,
+      "denoise": 1.0
+    }
+  },
+  "125": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "129",
+        0
+      ],
+      "guider": [
+        "126",
+        0
+      ],
+      "sampler": [
+        "135",
+        0
+      ],
+      "sigmas": [
+        "124",
+        0
+      ],
+      "latent_image": [
+        "152",
+        0
+      ]
+    }
+  },
+  "126": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "134",
+        0
+      ],
+      "conditioning": [
+        "151",
+        0
+      ]
+    }
+  },
+  "127": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "128": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    }
+  },
+  "129": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 42
+    }
+  },
+  "134": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": [
+        "127",
+        0
+      ],
+      "lora_name": "Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors",
+      "strength_model": 1.0
+    }
+  },
+  "135": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "142": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "134",
+        0
+      ],
+      "shift": 3.1
+    }
+  },
+  "148": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "128",
+        0
+      ],
+      "text": [
+        "1",
+        0
+      ]
+    }
+  },
+  "149": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "128",
+        0
+      ],
+      "text": ""
+    }
+  },
+  "150": {
+    "class_type": "ImagePadForOutpaint",
+    "inputs": {
+      "image": [
+        "901",
+        0
+      ],
+      "left": 0,
+      "top": 0,
+      "right": 0,
+      "bottom": 0,
+      "feathering": 0
+    }
+  },
+  "151": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "148",
+        0
+      ]
+    }
+  },
+  "901": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "color.png"
+    }
+  },
+  "152": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "150",
+        0
+      ],
+      "vae": [
+        "119",
+        0
+      ]
+    }
+  }
+}

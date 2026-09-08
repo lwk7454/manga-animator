@@ -1,0 +1,8 @@
+# SD1.5 lineart ControlNet — MangaNinja's line-art conditioning.
+id = "sd15_lineart_controlnet"
+format = "controlnet"
+file = "control_v11p_sd15_lineart_fp16.safetensors"
+sha256 = ""
+source = "https://huggingface.co/lllyasviel/ControlNet-v1-1/resolve/main/control_v11p_sd15_lineart_fp16.safetensors"
+target_dir = "controlnet"
+provenance = "lllyasviel ControlNet v1.1 lineart, fp16 (Apache-2.0 era weights)"

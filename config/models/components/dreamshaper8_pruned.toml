@@ -1,0 +1,9 @@
+# DreamShaper 8 (pruned SD1.5) — MangaNinja's base painter.
+# sha256 pinned at first install; koma doctor re-verifies on the box.
+id = "dreamshaper8_pruned"
+format = "checkpoint"
+file = "DreamShaper_8_pruned_sdm.safetensors"
+sha256 = ""
+source = "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned_sdm.safetensors"
+target_dir = "checkpoints"
+provenance = "Lykon DreamShaper 8, SD1.5 family, open weights (CreativeML Open RAIL-M)"

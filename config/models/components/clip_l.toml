@@ -1,0 +1,8 @@
+# CLIP-L text encoder — MangaNinja's conditioning encoder.
+id = "clip_l"
+format = "clip"
+file = "clip_l.safetensors"
+sha256 = ""
+source = "https://huggingface.co/comfyanonymous/clip_weights/resolve/main/clip_l.safetensors"
+target_dir = "clip"
+provenance = "comfyanonymous clip_weights (OpenCLIP-ViT-L/14 for SD1.5)"

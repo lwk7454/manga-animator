@@ -1,0 +1,29 @@
+# MiniMax H3 fl2va pruned-int8 turbo — the stock video lane (Phase 5 default).
+# Proven in vidgen (~70s/clip warm): ComfyUI core nodes, turbo LoRA live-loaded.
+# This is the baseline the fused candidate (decision #027) A/Bs against.
+id = "minimax_h3_fl2va_turbo"
+kind = "video_i2v"
+provider = "comfyui"
+workflow = "workflows/minimax_h3_i2v_turbo_v2.json"
+components = {}
+
+[inject]
+unet     = "1.inputs.unet_name"
+clip     = "3.inputs.clip_name"
+keyframe = "6.inputs.image"
+motion   = "7.inputs.prompt"
+length   = "7.inputs.length"
+fps      = "14.inputs.fps"
+output   = "15.inputs.filename_prefix"
+frame_grid = "auto"
+
+[defaults]
+frame_grid_node = "MiniMaxH3ImageToVideo"
+steps = 4
+
+[setup]
+# weights already on box (ComfyUI-Shared): minimax_h3_fl2va_pruned_int8_convrot,
+# qwen3vl_32b_minimax_h3_nvfp4_awq, minimax_h3 video/audio VAEs.
+weights = []
+custom_nodes = []
+provenance = "MiniMax H3 open weights (community license); turbo LoRA (lightx2v)"

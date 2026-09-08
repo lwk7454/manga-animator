@@ -1,0 +1,32 @@
+# MangaNinja colorize profile — the stock colorize lane (Phase 3).
+# Workflow: LoadImage(panel) + LoadImage(ref sheet) → MangaNinjiaSampler → SaveImage.
+# Headless: no MarkImageNode (UI point-marking sugar) — auto point matching.
+# Weight components are verified by koma doctor (node IDs live via /object_info).
+id = "manganinja_sd15"
+kind = "colorize"
+provider = "comfyui"
+workflow = "workflows/manganinja_colorize.json"
+components = {}
+
+[inject]
+checkpoint   = "12.inputs.checkpoint"
+clip         = "12.inputs.clip"
+controlnet   = "12.inputs.controlnet"
+lineart      = "13.inputs.image"     # the PANEL line art to colorize
+ref_image    = "14.inputs.image"     # the CHARACTER SHEET (color reference)
+seed         = "16.inputs.seed"
+width        = "16.inputs.width"
+height       = "16.inputs.height"
+guidance_ref = "16.inputs.guidance_scale_ref"
+guidance_point = "16.inputs.guidance_scale_point"
+steps        = "16.inputs.steps"
+is_lineart   = "16.inputs.is_lineart"
+output       = "17.inputs.filename_prefix"
+
+[defaults]
+width = 512
+height = 512
+steps = 25
+guidance_ref = 9.0
+guidance_point = 15.0
+is_lineart = true

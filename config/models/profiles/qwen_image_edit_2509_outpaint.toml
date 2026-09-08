@@ -1,0 +1,44 @@
+# Qwen-Image-Edit-2509 outpaint profile — the B2 keyframe lane (Phase 4).
+# Panel color masters are reframed (outpainted) to 16:9 / 9:16 keyframes.
+# Reframing-not-cropping is the locked strategy (PLAN §12, decision #010/#011);
+# Qwen-Image-Edit chosen for instruction following + native JP text rendering
+# (balloons survive outpainting). Lightning 8-step LoRA → seconds per panel.
+# VRAM (staged legs, no offload): unet 20.43 + int8 vae 3.17 ≈ 23.6GB fits;
+# text-encode leg 9.38 (fp8-scaled encoder) then offloads.
+id = "qwen_image_edit_2509_outpaint"
+kind = "outpaint"
+provider = "comfyui"
+workflow = "workflows/qwen_image_edit_outpaint.json"
+components = {}
+
+[inject]
+image         = "901.inputs.image"            # LoadImage — the color master
+unet          = "127.inputs.unet_name"
+clip          = "128.inputs.clip_name"
+video_vae     = "119.inputs.vae_name"
+lora          = "134.inputs.lora_name"
+prompt        = "1.inputs.value"
+width         = "115.inputs.width"
+height        = "115.inputs.height"
+seed          = "129.inputs.noise_seed"
+steps         = "124.inputs.steps"
+cfg           = "126.inputs.cfg"
+lora_strength = "134.inputs.strength_model"
+output        = "92.inputs.filename_prefix"
+
+[defaults]
+# Doctrine #001: the master is the authority — fill the canvas, change nothing.
+prompt  = "Extend this image to fill the new canvas. Keep the art style, characters, composition and all text exactly unchanged. Fill the added areas by seamlessly continuing the existing scene."
+steps   = 8
+cfg     = 1.0
+lora_strength = 1.0
+
+[setup]
+weights = [
+  {url="https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors", dir="diffusion_models"},
+  {url="https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors", dir="text_encoders"},
+  {url="https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors", dir="vae"},
+  {url="https://huggingface.co/Osrivers/Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors/resolve/main/Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors", dir="loras"},
+]
+custom_nodes = []             # core ComfyUI nodes only
+provenance = "Qwen-Image-Edit-2509 (Apache-2.0) + Lightning distill LoRA (lightx2v lineage)"

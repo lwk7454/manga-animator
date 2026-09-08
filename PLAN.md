@@ -1,4 +1,4 @@
-# manga-animantor — Design & Build Plan
+# manga-animator — Design & Build Plan
 
 Status: **PLAN — not yet implemented** (plan-only phase, per Pooh's instruction)
 Date: 2026-09-08
@@ -207,7 +207,7 @@ regen-review list at the next natural checkpoint.
 ## 6. State model & storage
 
 ```
-~/dev/manga-animantor/            # repo (see §10)
+~/dev/manga-animator/            # repo (see §10)
   data/                           # gitignored — ALL pipeline state lives here
     series/<slug>/
       source/                     # original pages (imported copies)
@@ -330,7 +330,7 @@ the rest.
 ## 10. Repo layout & CLI
 
 ```
-~/dev/manga-animantor/
+~/dev/manga-animator/
   PLAN.md  DECISIONS.md  README.md
   docs/research/           # dossiers + corpus (from this planning round)
   src/koma/                # Python 3.11+ package (pydantic v2, typer, httpx, jinja2)

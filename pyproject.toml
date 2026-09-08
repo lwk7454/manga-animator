@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "koma"
+version = "0.1.0"
+description = "manga-animator — manga pages to coherent animated video (koma CLI)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+dependencies = [
+    "httpx>=0.28",
+    "pydantic>=2.13",
+    "typer>=0.12",
+    "jinja2>=3.1",
+    "opencv-python-headless>=4.9",
+    "pillow>=11.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+koma = "koma.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+ignore = [
+    "B008",  # typer idiom: function calls in argument defaults are how typer works
+]

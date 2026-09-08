@@ -14,3 +14,5 @@ build/
 
 # os
 .DS_Store
+# briefs (working notes)
+.hermes-briefs/

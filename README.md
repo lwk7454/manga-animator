@@ -1,29 +1,42 @@
-# manga-animantor
+# manga-animator
 
-Manga series → coherent chapter-by-chapter animated video, on local hardware.
-`koma` (コマ — manga panel) is the CLI.
+Manga pages → coherent animated video. Plan: `PLAN.md` · decisions:
+`DECISIONS.md` · research: `docs/research/`.
 
-**Status: PLAN.** Nothing is implemented yet — this round is design only.
+## Status — implementation begun (Sep 2026)
 
-- **PLAN.md** — the full design & build plan (pipeline, model stack, state
-  model, phases, acceptance run). Start here.
-- **DECISIONS.md** — the authoritative decision log. Never re-litigate.
-- **docs/research/** — primary-source model research (MiniMax H3 in
-  ComfyUI, TTS for adult JP/EN, uncensored LLM/vision options), Sep 2026.
+- **Phase 0 ✅ scaffold** — package, domain models, series store (atomic JSON),
+  config layering, `koma new/status/health/pause/resume`, global launcher
+  (`~/.local/bin/koma`, editable venv `~/.local/share/koma-venv`), 33 tests.
+- **Phase 1 ✅ ingest & order** — JPEG/PDF import (pdftoppm/mutool), panel
+  detection (OpenCV heuristic adapted from Comic-Panel-Extractor, GPLv3,
+  DPI-independent + splash fallback), reading-order proposal (overlap-based
+  row clustering, RTL/LTR, low-confidence flags), panel crops
+  (`chapters/NN/panels/<PPPP>/panel.png`), dark-theme review sheet
+  (`koma review`) + headless `koma certify --swap`.
+- **Phase 2 ✅ gate & script (Mac, zero GPU)** — fail-closed age-gate
+  (Civitai SigLIP2 age + WD-swinv2 tagger, OR-reject, model error ⇒ reject,
+  audit log per chapter; LIVE-verified with real weights on synthetic pages),
+  `koma gate/script/cards` commands, clients (Ollama text+vision,
+  OpenAI-compat fallback, manga-ocr), script stage (caption → OCR → motion →
+  EN/zh-HANS translation → audio-first timing on the 17n+5 grid),
+  SCRIPT_FAILED rework lane + recovery. 68 tests green (gate red-team:
+  error/timeout/missing-source all fail closed).
+- Phase 3 (colorize — first GPU lane) next.
 
-Headline properties:
+## Dev
 
-- Anime-fication: each colorized panel is the keyframe; LLM-written motion
-  prompts drive MiniMax H3 i2v on the local 3090.
-- Adults-only content supported end-to-end (local models only where cloud
-  models refuse); mandatory fail-closed age-gate before any generation.
-- Character cards anchor identity (colors + JP voice) across indefinitely
-  long series; outfit variants discovered whenever they appear.
-- JP voices + EN/zh-HANS subtitles; layered audio (dialogue, moans/SFX,
-  soft BGM).
+```
+make venv install   # once
+make test           # pytest
+koma --help
+```
+
+Adults-only project (18+): age-gate lands in Phase 2 and is fail-closed —
+no generation without a passed gate (decision #013).
+
+- JP voices + EN/zh-HANS subtitles; layered audio (dialogue, moans/SFX, soft BGM).
 - Every model is a swappable profile — `koma models install/default/pin/ab`.
-  PinkCherry (adult-trained painter) and Heretic (abliterated encoder) drop
-  in as alternative MiniMax H3 profiles with zero code (PLAN §11).
+  PinkCherry (adult-trained painter) and Heretic (abliterated reader) ship as
+  ready-to-install component/profile recipes (PLAN §11.1–11.2), post-v1.
 - 16:9 and/or 9:16 — two full generations, shared upstream.
-- Long-running work is resumable, queue-based, and manually pausable at any
-  moment; the 3090 is treated as a shared machine.
