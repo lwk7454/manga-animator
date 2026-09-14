@@ -55,7 +55,7 @@ class Settings:
     # ── model routing (adapter registry fills this in later phases) ─────────
     @property
     def video_profile_default(self) -> str:
-        return str(self.get("video.profile_default", "h3_fl2va_turbo"))
+        return str(self.get("video.profile_default", "minimax_h3_fl2va_turbo"))
 
     @property
     def text_llm(self) -> str:

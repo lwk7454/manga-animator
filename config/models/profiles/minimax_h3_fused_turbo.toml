@@ -18,7 +18,7 @@ components = {}
 [inject]
 unet        = "127.inputs.unet_name"
 clip        = "128.inputs.clip_name"
-keyframe    = "131.inputs.first_frame"
+keyframe    = "901.inputs.image"
 motion      = "131.inputs.prompt"
 length      = "131.inputs.length"
 width       = "131.inputs.width"

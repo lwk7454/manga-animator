@@ -70,12 +70,14 @@ def queue_render(
     """Queue one i2v job per KEYFRAMED panel (idempotent)."""
     from ..scheduler.queue import load_queue, save_queue
 
+    if ratio not in RATIO_SIZES:
+        raise ValueError(f"unsupported ratio: {ratio!r}; expected 16:9 or 9:16")
     if profile_id is None:
         profile_id = _video_profile(config, slug)
     cfg_dir = _config_dir(config)
     registry.resolve_profile(cfg_dir, profile_id)  # validates spec + workflow
 
-    width, height = RATIO_SIZES.get(ratio, (768, 432))
+    width, height = RATIO_SIZES[ratio]
     kf_w, kf_h = _keyframe_size_for(ratio)
 
     sdir = store.data_dir
@@ -87,7 +89,7 @@ def queue_render(
         keyframed = [p for p in keyframed if p.panel_id.startswith(f"ch{chapter:02d}_")]
 
     for panel in keyframed:
-        ch = int(panel.panel_id[2:4])
+        ch = int(panel.panel_id.split("_")[0][2:])
         pdir = store.chapter_dir(slug, ch) / "panels" / panel.panel_id
         kf = pdir / f"keyframe_{kf_w}x{kf_h}.png"
         if not kf.exists():

@@ -200,7 +200,13 @@ class TestGateCLI:
         panels = [pn for pg in store.load_pages(slug) for pn in pg.panels]
         assert all(pn.state is PanelState.GATED for pn in panels)
 
-    def test_cli_gate_enabled_pass_exit_zero(self, gate_store: tuple[SeriesStore, str]) -> None:
+    def test_cli_gate_enabled_pass_exit_zero(
+        self, gate_store: tuple[SeriesStore, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import koma.steps.gate as gate_mod
+
+        monkeypatch.setattr(gate_mod, "score_civitai", fake_civitai(0.01))
+        monkeypatch.setattr(gate_mod, "score_wd_tagger", fake_wd())
         store, slug = gate_store
         d = str(store.data_dir)
         r = runner.invoke(app, ["gate", slug, "--data-dir", d, "--enabled"])
@@ -342,17 +348,22 @@ class TestScriptCLI:
         assert r.exit_code == 0, r.output
         assert "6 GATED panel(s)" in r.output
 
-    def test_cli_script_success(self, tmp_path: Path) -> None:
+    def test_cli_script_success(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         store, slug = _script_store(tmp_path)
-        from koma.cli import _store  # noqa: F401
+        import koma.steps.script as script_mod
 
-        # inject fakes via monkeypatch of module defaults
+        real_script = script_mod.script_chapter
+
+        def offline_script(*args, **kwargs):
+            return real_script(*args, **kwargs, client=FakeClient(), ocr=FakeOcr())
+
+        monkeypatch.setattr(script_mod, "script_chapter", offline_script)
         r = runner.invoke(
             app,
             ["script", slug, "--data-dir", str(store.data_dir)],
         )
-        # live LLM unavailable → SCRIPT_FAILED path → exit 1 (fail visible)
-        assert r.exit_code in (0, 1)
+        assert r.exit_code == 0, r.output
+        assert "scripted 6 panel(s), 0 failed" in r.output
 
     def test_cli_cards_empty(self, tmp_path: Path) -> None:
         store, slug = _script_store(tmp_path)
@@ -435,10 +446,14 @@ class TestClients:
             captured["auth"] = request.headers.get("authorization")
             return _httpx.Response(200, json={"message": {"content": "ok"}})
 
-        # NOTE: replace only the TRANSPORT on the client's own httpx.Client —
-        # the auth headers live on that client instance; swapping the whole
-        # client would silently drop them (that's a test bug, not a code bug).
+        # Preserve the actual constructor's headers while replacing all transport
+        # routing, including proxy mounts inherited from the environment.
         client = OllamaClient(base_url="http://test")
-        client._client._transport = _httpx.MockTransport(handler)
+        original = client._client
+        client._client = _httpx.Client(
+            base_url=original.base_url, headers=original.headers,
+            transport=_httpx.MockTransport(handler),
+        )
+        original.close()
         client.chat("m", [{"role": "user", "content": "q"}])
         assert captured["auth"] == "Bearer sk-test"

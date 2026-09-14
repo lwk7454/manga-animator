@@ -97,8 +97,9 @@ def _frames(duration_s: float, fps: int = 24, grid_fn=None) -> int:
     """
     if grid_fn is not None:
         return grid_fn(duration_s)
-    n = max(1, round((duration_s * fps - 5) / 17))
-    return 17 * n + 5
+    from ..gpu.sizing import MINIMAX_H3_GRID, clip_frames
+
+    return clip_frames(duration_s, fps, MINIMAX_H3_GRID)
 
 
 # ── step ─────────────────────────────────────────────────────────────────────

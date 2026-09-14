@@ -1,42 +1,51 @@
 # manga-animator
 
-Manga pages → coherent animated video. Plan: `PLAN.md` · decisions:
-`DECISIONS.md` · research: `docs/research/`.
+Manga pages → animated chapter video. `koma` is the CLI.
 
-## Status — implementation begun (Sep 2026)
+`DECISIONS.md` records the current constraints and supersedes older statements
+in `PLAN.md`. Model research lives under `docs/research/`.
 
-- **Phase 0 ✅ scaffold** — package, domain models, series store (atomic JSON),
-  config layering, `koma new/status/health/pause/resume`, global launcher
-  (`~/.local/bin/koma`, editable venv `~/.local/share/koma-venv`), 33 tests.
-- **Phase 1 ✅ ingest & order** — JPEG/PDF import (pdftoppm/mutool), panel
-  detection (OpenCV heuristic adapted from Comic-Panel-Extractor, GPLv3,
-  DPI-independent + splash fallback), reading-order proposal (overlap-based
-  row clustering, RTL/LTR, low-confidence flags), panel crops
-  (`chapters/NN/panels/<PPPP>/panel.png`), dark-theme review sheet
-  (`koma review`) + headless `koma certify --swap`.
-- **Phase 2 ✅ gate & script (Mac, zero GPU)** — fail-closed age-gate
-  (Civitai SigLIP2 age + WD-swinv2 tagger, OR-reject, model error ⇒ reject,
-  audit log per chapter; LIVE-verified with real weights on synthetic pages),
-  `koma gate/script/cards` commands, clients (Ollama text+vision,
-  OpenAI-compat fallback, manga-ocr), script stage (caption → OCR → motion →
-  EN/zh-HANS translation → audio-first timing on the 17n+5 grid),
-  SCRIPT_FAILED rework lane + recovery. 68 tests green (gate red-team:
-  error/timeout/missing-source all fail closed).
-- Phase 3 (colorize — first GPU lane) next.
+## Status — September 2026
 
-## Dev
+Implemented: JSON series storage, ingest and order review, scripting and
+character proposals, profile loading, GPU job planning, and a polling monitor.
+These stages remain experimental. Review identity, concurrent persistence,
+retries, and per-ratio completion still need coordinated fixes before an
+unattended chapter run is dependable.
 
+- Vision runs on the Windows GPU box under decision #024; cloud text and local
+  image processing have separate intended roles. Routing enforcement still needs work.
+- The gate defaults to pass-through under decision #023. Legacy scoring is opt-in.
+- Keyframes default to the series' configured ratios. `--chapter` constrains
+  keyframe planning and native-color copying. Render currently requires a separate
+  invocation for each ratio; its default remains `16:9`.
+- Stock and fused video profiles have offline-tested input bindings. This does
+  not establish installed weights, live node compatibility, GPU memory fit, or
+  output quality. The outpaint workflow still needs correction and visual validation.
+- The monitor waits for its last running job, holds work when the box is known
+  offline, and requests a vision handoff only before a new submission. Failed
+  handoffs hold the pending job. There is no cross-process GPU lease yet.
+- TTS, audio mixing, subtitles, upscale/validation, and chapter assembly are
+  unfinished. Model install/default/pin/A-B commands are not implemented.
+
+## Development
+
+Python 3.11+:
+
+```sh
+python -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pytest
+.venv/bin/python -m ruff check src tests
+.venv/bin/koma --help
 ```
-make venv install   # once
-make test           # pytest
-koma --help
-```
 
-Adults-only project (18+): age-gate lands in Phase 2 and is fail-closed —
-no generation without a passed gate (decision #013).
+The default test suite uses synthetic data and mocked services and rejects live
+socket connections. It does not load model weights or submit GPU jobs. Live OCR
+requires the separately installed `manga-ocr` dependency; model provisioning and
+Windows custom-node dependencies are separate from the offline test environment.
 
-- JP voices + EN/zh-HANS subtitles; layered audio (dialogue, moans/SFX, soft BGM).
-- Every model is a swappable profile — `koma models install/default/pin/ab`.
-  PinkCherry (adult-trained painter) and Heretic (abliterated reader) ship as
-  ready-to-install component/profile recipes (PLAN §11.1–11.2), post-v1.
-- 16:9 and/or 9:16 — two full generations, shared upstream.
+The September 14 follow-up adds regression coverage for monitor drain, profile
+compilation, chapter/ratio selection, canonical candidate labels, component
+verification, frame sizing, and converter cycles. Existing job/artifact data is
+not migrated by these code changes.

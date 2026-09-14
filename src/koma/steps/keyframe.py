@@ -45,6 +45,7 @@ def queue_keyframes(
     config,
     ratios: list[str] | None = None,
     profile_id: str = "qwen_image_edit_2509_outpaint",
+    chapter: int | None = None,
 ) -> dict[str, Any]:
     """Queue one outpaint job per (COLORIZED panel, ratio). Idempotent.
 
@@ -53,7 +54,10 @@ def queue_keyframes(
     from ..scheduler.queue import load_queue, save_queue
 
     if ratios is None:
-        ratios = ["16:9", "9:16"]
+        ratios = store.load_series(slug).meta.ratios
+    for ratio in ratios:
+        if ratio not in RATIO_SIZES:
+            raise ValueError(f"unsupported ratio: {ratio!r}; expected 16:9 or 9:16")
     cfg_dir = _config_dir(config)
     registry.resolve_profile(cfg_dir, profile_id)  # validates spec + workflow
 
@@ -63,10 +67,12 @@ def queue_keyframes(
 
     colorized = store.panels_in_state(slug, PanelState.COLORIZED)
     for panel in colorized:
-        ch = int(panel.panel_id[2:4])
+        ch = int(panel.panel_id.split("_")[0][2:])
+        if chapter is not None and ch != chapter:
+            continue
         pdir = store.chapter_dir(slug, ch) / "panels" / panel.panel_id
         for ratio in ratios:
-            width, height = RATIO_SIZES.get(ratio, (1024, 576))
+            width, height = RATIO_SIZES[ratio]
             out = pdir / f"keyframe_{width}x{height}.png"
             job_id = f"kf_{panel.panel_id}_{width}x{height}"
             if out.exists() or any(j["id"] == job_id for j in queue["jobs"]):

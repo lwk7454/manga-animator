@@ -204,7 +204,7 @@ class TestSeriesStore:
 class TestConfig:
     def test_defaults_from_committed_toml(self) -> None:
         s = Settings()
-        assert s.video_profile_default == "h3_fl2va_turbo"
+        assert s.video_profile_default == "minimax_h3_fl2va_turbo"
         assert s.text_llm == "glm-5.3-flash"
         assert s.gpu_host == "192.168.50.103"
         assert s.gpu_port == 8188
@@ -217,7 +217,7 @@ class TestConfig:
 
     def test_missing_config_uses_builtins(self, tmp_path: Path) -> None:
         s = Settings(tmp_path / "nonexistent.toml")
-        assert s.video_profile_default == "h3_fl2va_turbo"
+        assert s.video_profile_default == "minimax_h3_fl2va_turbo"
 
     def test_env_layering(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         (tmp_path / "c.toml").write_text("[text]\nllm = 'from-file'\n")

@@ -121,8 +121,12 @@ class UIWorkflow:
         node back into the graph (vendor workflows bypass TextGenerateLTX2Prompt
         and friends; koma always drives the static prompt path).
         """
-        seen = 0
-        while seen < 16:
+        visited: set[tuple[int, int]] = set()
+        while True:
+            source = (node_id, slot)
+            if source in visited:
+                raise WorkflowConvertError(f"cycle resolving workflow source {source}")
+            visited.add(source)
             node = self.nodes.get(node_id)
             if node is None:
                 return None
@@ -158,8 +162,6 @@ class UIWorkflow:
                 node_id, slot = link[1], link[2]
             else:
                 return (node_id, slot)
-            seen += 1
-        return None
 
     def live_nodes(self) -> set[int]:
         """Real nodes (mode==0, not dropped) reachable from output nodes."""

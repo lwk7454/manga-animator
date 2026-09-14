@@ -64,39 +64,63 @@ def list_profiles(config_dir: Path) -> list[dict[str, Any]]:
 
 
 def verify_component(config_dir: Path, component_id: str, box_model_root: str = "") -> bool:
-    """Check a component's weights file exists; verify sha256 if the file is local.
+    """Return True only for a reachable file with a matching pinned SHA-256.
 
-    The box's model tree isn't visible to the Mac — presence is verified over
-    SSH by the caller (``koma doctor``); here we verify hash when the file IS
-    reachable at ``box_model_root`` (e.g. a mounted share) and otherwise only
-    check the spec is complete.
+    No model root or no hash means unverified (False). Missing files, malformed
+    hashes and mismatches raise AdapterError. This does not probe remote weights.
     """
     spec = load_component(config_dir, component_id)
     file = spec.get("file")
     sha = spec.get("sha256", "")
     if not file:
         raise AdapterError(f"component {component_id}: missing 'file'")
-    if not sha or len(sha) != 64:
+    if sha and (len(sha) != 64 or any(c not in "0123456789abcdefABCDEF" for c in sha)):
+        raise AdapterError(f"component {component_id}: invalid sha256")
+    if not sha:
         log.warning("component %s: sha256 not pinned yet — pin it at first install", component_id)
     if box_model_root:
         candidate = Path(box_model_root) / spec.get("target_dir", "") / file
-        if candidate.exists() and sha:
-            actual = hashlib.sha256(candidate.read_bytes()).hexdigest()
-            if actual != sha:
+        if not candidate.is_file():
+            raise AdapterError(f"component {component_id}: weights file missing: {candidate}")
+        if sha:
+            with candidate.open("rb") as fh:
+                actual = hashlib.file_digest(fh, "sha256").hexdigest()
+            if actual != sha.lower():
                 raise AdapterError(
                     f"component {component_id}: sha256 mismatch ({candidate.name}) — refuse to use"
                 )
-    return True
+            return True
+    return False
 
 
 def resolve_profile(config_dir: Path, profile_id: str) -> dict[str, Any]:
     """Load a profile + its workflow JSON; returns {spec, workflow, inject}."""
     spec = load_profile(config_dir, profile_id)
-    repo_root = Path(config_dir).parent
-    wf_path = repo_root / "config" / spec.get("workflow", "")
+    wf_path = Path(config_dir) / spec.get("workflow", "")
     if not wf_path.exists():
         raise AdapterError(f"profile {profile_id}: workflow file missing: {wf_path}")
     import json
 
     workflow = json.loads(wf_path.read_text(encoding="utf-8"))
-    return {"spec": spec, "workflow": workflow, "inject": spec.get("inject", {})}
+    inject = spec.get("inject", {})
+    if spec.get("kind") == "video_i2v":
+        required = {"keyframe", "motion", "length", "fps", "seed", "width", "height",
+                    "steps", "output"}
+        missing = required - inject.keys()
+        if missing:
+            raise AdapterError(f"profile {profile_id}: missing video slots: {sorted(missing)}")
+        for name in required:
+            path = inject[name]
+            value = workflow
+            try:
+                for part in path.split("."):
+                    value = value[part]
+            except (KeyError, TypeError, AttributeError) as exc:
+                raise AdapterError(f"profile {profile_id}: invalid {name} slot {path!r}") from exc
+            # Scalar parameters may replace linked primitive outputs. An uploaded
+            # filename, however, must remain on a loader rather than an IMAGE socket.
+            if name == "keyframe" and not isinstance(value, str):
+                raise AdapterError(
+                    f"profile {profile_id}: keyframe must target a filename, not a connection"
+                )
+    return {"spec": spec, "workflow": workflow, "inject": inject}

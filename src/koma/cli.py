@@ -381,7 +381,7 @@ def keyframes(
     slug: str = typer.Argument(...),
     chapter: int = typer.Option(None, "--chapter", help="Limit to one chapter."),
     ratio: list[str] = typer.Option(
-        [], "--ratio", help="Ratios to build (default: both 16:9 and 9:16)."
+        [], "--ratio", help="Ratios to build (default: series ratios)."
     ),
     data_dir: Path = typer.Option(None, "--data-dir", hidden=True),
 ) -> None:
@@ -393,7 +393,7 @@ def keyframes(
         _fail(f"no series {slug!r}")
     s: Settings = default_settings()
     ratios = ratio or None
-    result = queue_keyframes(slug, store, s, ratios=ratios)
+    result = queue_keyframes(slug, store, s, ratios=ratios, chapter=chapter)
     typer.echo(
         f"queued {result['queued']} keyframe job(s), skipped {result['skipped']}"
         f" (ratios: {', '.join(result['ratios'])}; profile: {result['profile']})"
@@ -454,12 +454,10 @@ def monitor(
         )
         if once:
             return
-        pending = 0
-        from .scheduler.queue import load_queue, next_pending
+        from .scheduler.queue import load_queue, next_pending, running_job
 
         q = load_queue(dd)
-        pending = 1 if next_pending(q) else 0
-        if not pending and summary["failed"] == 0:
+        if next_pending(q) is None and running_job(q) is None:
             typer.echo("queue drained — monitor exiting")
             return
         _time.sleep(interval)

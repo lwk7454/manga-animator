@@ -44,16 +44,10 @@ def monitor_once(
     summary: dict[str, Any] = {"submitted": 0, "downloaded": 0, "failed": 0, "paused":
         is_paused(sdir), "box_online": worker.is_online()}
 
-    # GPU lane arbitration (decision #026): before any ComfyUI work, ensure
-    # the vision daemon is NOT holding VRAM. Fail-open: if arbitration fails
-    # (box ssh down etc.) we still try the job — free_vram after each job.
-    if summary["box_online"] and not summary["paused"]:
-        try:
-            from ..gpu.lanes import ensure_vision_lane
-
-            ensure_vision_lane(on=False, config=config)
-        except Exception as exc:
-            log.warning("vision lane stop failed (continuing): %s", exc)
+    # A known-offline box holds work unchanged; absence cannot be established
+    # by polling an unreachable server. A later tick can reconcile it.
+    if not summary["box_online"]:
+        return summary
 
     queue = load_queue(sdir)
 
@@ -78,6 +72,18 @@ def monitor_once(
     if not summary["paused"] and summary["box_online"] and not running_job(queue):
         job = next_pending(queue)
         if job:
+            # Only request a handoff for actual new work. This is not a lease:
+            # concurrent vision/pixel commands still require shared ownership.
+            from ..gpu.lanes import ensure_vision_lane
+
+            try:
+                lane = ensure_vision_lane(on=False, config=config)
+                if lane["llama_running"]:
+                    raise RuntimeError("vision service is still running")
+            except Exception as exc:
+                log.warning("vision lane handoff failed; holding pending job: %s", exc)
+                save_queue(sdir, queue)
+                return summary
             _submit_job(cfg_dir, worker, queue, job)
             if job.get("state") == "running":
                 summary["submitted"] += 1

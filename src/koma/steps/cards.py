@@ -248,16 +248,18 @@ def pick_canonical_panels(
             continue
         candidates.sort(key=lambda t: -t[1])
         top = [pid for pid, _ in candidates[:per_card]]
-        images = [
-            store.chapter_dir(slug, int(pid.split("_")[0][2:]))
-            / "panels" / pid / "panel.png"
+        candidates_with_paths = [
+            (pid, store.chapter_dir(slug, int(pid.split("_")[0][2:]))
+             / "panels" / pid / "panel.png")
             for pid in top
         ]
-        images = [p for p in images if p.exists()]
+        available = [(pid, path) for pid, path in candidates_with_paths if path.is_file()]
+        top = [pid for pid, _ in available]
+        images = [path for _, path in available]
         if not images:
             result[card.id] = {"canonical": None, "note": "panel pngs missing"}
             continue
-        numbered = "\n".join(f"{i + 1}. {pid}" for i, pid in enumerate(top[: len(images)]))
+        numbered = "\n".join(f"{i + 1}. {pid}" for i, pid in enumerate(top))
         try:
             answer = vision.chat(
                 cfg.vision_model,
@@ -269,7 +271,7 @@ def pick_canonical_panels(
             continue
         m = re.search(r"ch\d+_p\d+_\d+", answer)
         result[card.id] = {
-            "canonical": m.group(0) if m else None,
+            "canonical": m.group(0) if m and m.group(0) in top else None,
             "candidates": top,
             "reason": answer.strip()[:200],
         }

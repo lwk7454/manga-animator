@@ -14,4 +14,4 @@ def default_data_dir() -> Path:
     """Package-root-relative default: <repo>/data (decision #016)."""
     from ..config import settings
 
-    return settings.resolved_data_dir()
+    return settings().resolved_data_dir()

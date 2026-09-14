@@ -7,7 +7,7 @@ data = "data"
 config = "config"
 
 [video]
-profile_default = "h3_fl2va_turbo"   # decision #020: stock lane, zero-config
+profile_default = "minimax_h3_fl2va_turbo"   # decision #020: stock lane, zero-config
 
 [text]
 llm = "glm-5.3-flash"                # Ollama Cloud (decision #015); env: KOMA_TEXT_API_KEY

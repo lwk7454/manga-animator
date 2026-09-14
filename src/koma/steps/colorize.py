@@ -49,7 +49,9 @@ def queue_colorize(
         # color.png = panel.png (documented skip-forward edge).
         skipped_panels = []
         for p in store.panels_in_state(slug, PanelState.SCRIPTED):
-            ch = int(p.panel_id[2:4])
+            ch = int(p.panel_id.split("_")[0][2:])
+            if chapter is not None and ch != chapter:
+                continue
             color = store.chapter_dir(slug, ch) / "panels" / p.panel_id / "color.png"
             panel_png = store.chapter_dir(slug, ch) / "panels" / p.panel_id / "panel.png"
             color.parent.mkdir(parents=True, exist_ok=True)
@@ -60,7 +62,8 @@ def queue_colorize(
                 "note": "color source — color.png = panel.png", "skipped_panels": skipped_panels}
 
     chapters = [chapter] if chapter else sorted({
-        int(p.panel_id[2:4]) for p in store.panels_in_state(slug, PanelState.SCRIPTED)
+        int(p.panel_id.split("_")[0][2:])
+        for p in store.panels_in_state(slug, PanelState.SCRIPTED)
     })
     queue = load_queue(sdir)
     queued = 0
