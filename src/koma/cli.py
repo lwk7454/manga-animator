@@ -1,10 +1,13 @@
 """Current experimental koma command surface.
 
 Use command help for implemented options. PLAN.md §10 specifies the target CLI;
-unified run ownership, safe controls and media delivery are still pending."""
+unified run ownership, safe controls and media delivery are still pending.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import typer
@@ -26,6 +29,35 @@ app = typer.Typer(
 def _store(data_dir: Path | None = None) -> SeriesStore:
     s: Settings = default_settings()
     return SeriesStore(data_dir if data_dir is not None else s.resolved_data_dir())
+
+
+@contextmanager
+def _owner(command: str, data_dir: Path | None = None) -> Iterator[object]:
+    """Acquire the host-wide command owner for mutating commands (§7).
+
+    Read-only commands (status/health/doctor/models list) bypass this. A
+    conflicting owner exits with code 5 (OWNER_BUSY) showing who holds it.
+    Tests can disable via KOMA_SKIP_OWNER=1 (single-process test harnesses).
+    """
+    import os
+
+    if os.environ.get("KOMA_SKIP_OWNER") == "1":
+        yield None
+        return
+    from .scheduler.ownership import OwnerBusy, OwnerLock
+
+    s: Settings = default_settings()
+    dd = data_dir if data_dir is not None else s.resolved_data_dir()
+    lock = OwnerLock()
+    try:
+        owner = lock.acquire(command, dd)
+    except OwnerBusy as e:
+        typer.echo(f"owner busy: {e}", err=True)
+        raise typer.Exit(5) from None
+    try:
+        yield owner
+    finally:
+        lock.release(owner)
 
 
 def _fail(msg: str) -> None:
@@ -168,14 +200,15 @@ def ingest(
     """Import pages → detect panels → propose reading order (A1)."""
     from .steps.ingest import import_chapter
 
-    store = _store(data_dir)
-    if not store.exists(slug):
-        _fail(f"no series {slug!r}")
-    try:
-        pages = import_chapter(store, slug, chapter, path)
-    except (FileNotFoundError, ValueError, RuntimeError) as e:
-        _fail(str(e))  # always raises
-        raise  # unreachable; satisfies B904
+    with _owner("ingest", data_dir):
+        store = _store(data_dir)
+        if not store.exists(slug):
+            _fail(f"no series {slug!r}")
+        try:
+            pages = import_chapter(store, slug, chapter, path)
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
+            _fail(str(e))  # always raises
+            raise  # unreachable; satisfies B904
     panels = sum(len(p.panels) for p in pages)
     awaiting = sum(
         1 for p in pages if any(pn.state is PanelState.AWAITING_ORDER_REVIEW for pn in p.panels)
@@ -231,10 +264,11 @@ def gate(
     """Compatibility command: no scoring. Reviewed panels can be scripted directly."""
     from .steps.gate import gate_series_chapter
 
-    store = _store(data_dir)
-    if not store.exists(slug):
-        _fail(f"no series {slug!r}")
-    gate_series_chapter(store, slug, chapter)
+    with _owner("gate", data_dir):
+        store = _store(data_dir)
+        if not store.exists(slug):
+            _fail(f"no series {slug!r}")
+        gate_series_chapter(store, slug, chapter)
     typer.echo(f"gate skipped: automated scoring removed (ch{chapter:02d})")
 
 
@@ -253,17 +287,19 @@ def script(
     """Script reviewed panels: captions, OCR, motion, translations (A4)."""
     from .steps.script import script_chapter
 
-    store = _store(data_dir)
-    if not store.exists(slug):
-        _fail(f"no series {slug!r}")
-    if dry_run:
-        summary = script_chapter(store, slug, chapter, dry_run=True, limit=limit)
-        n = summary["would_script"]
-        typer.echo(
-            f"dry-run: {n} eligible panel(s) would be scripted (vision → OCR → motion → translate)"
-        )
-        return
-    summary = script_chapter(store, slug, chapter, limit=limit)
+    with _owner("script", data_dir):
+        store = _store(data_dir)
+        if not store.exists(slug):
+            _fail(f"no series {slug!r}")
+        if dry_run:
+            summary = script_chapter(store, slug, chapter, dry_run=True, limit=limit)
+            n = summary["would_script"]
+            typer.echo(
+                f"dry-run: {n} eligible panel(s) would be scripted"
+                " (vision → OCR → motion → translate)"
+            )
+            return
+        summary = script_chapter(store, slug, chapter, limit=limit)
     extra = f" → {summary['script']}" if summary.get("script") else ""
     typer.echo(f"scripted {summary['scripted']} panel(s), {summary['failed']} failed{extra}")
     if summary["failed"]:
@@ -298,13 +334,14 @@ def discover(
     data_dir: Path = typer.Option(None, "--data-dir", hidden=True),
 ) -> None:
     """A5 discovery: consolidate script captions → pending card proposals."""
-    store = _store(data_dir)
-    if not store.exists(slug):
-        _fail(f"no series {slug!r}")
-    s: Settings = default_settings()
-    from .steps.cards import discover_cards
+    with _owner("discover", data_dir):
+        store = _store(data_dir)
+        if not store.exists(slug):
+            _fail(f"no series {slug!r}")
+        s: Settings = default_settings()
+        from .steps.cards import discover_cards
 
-    result = discover_cards(store, slug, s, chapter=chapter)
+        result = discover_cards(store, slug, s, chapter=chapter)
     typer.echo(
         f"proposed {result['proposed']} card(s), skipped {result.get('skipped', 0)}"
         f" (review-gated)"
@@ -319,13 +356,14 @@ def canonical(
     data_dir: Path = typer.Option(None, "--data-dir", hidden=True),
 ) -> None:
     """Vision-pick each pending card's canonical panel (local vision only)."""
-    store = _store(data_dir)
-    if not store.exists(slug):
-        _fail(f"no series {slug!r}")
-    s: Settings = default_settings()
-    from .steps.cards import pick_canonical_panels
+    with _owner("canonical", data_dir):
+        store = _store(data_dir)
+        if not store.exists(slug):
+            _fail(f"no series {slug!r}")
+        s: Settings = default_settings()
+        from .steps.cards import pick_canonical_panels
 
-    picks = pick_canonical_panels(store, slug, s)
+        picks = pick_canonical_panels(store, slug, s)
     for cid, info in picks.items():
         can = info.get("canonical")
         mark = can or "—"
@@ -340,13 +378,14 @@ def colorize(
     data_dir: Path = typer.Option(None, "--data-dir", hidden=True),
 ) -> None:
     """Queue colorize jobs for every SCRIPTED panel (Stage B1, GPU lane)."""
-    store = _store(data_dir)
-    if not store.exists(slug):
-        _fail(f"no series {slug!r}")
-    s: Settings = default_settings()
-    from .steps.colorize import queue_colorize
+    with _owner("colorize", data_dir):
+        store = _store(data_dir)
+        if not store.exists(slug):
+            _fail(f"no series {slug!r}")
+        s: Settings = default_settings()
+        from .steps.colorize import queue_colorize
 
-    result = queue_colorize(slug, store, s, chapter)
+        result = queue_colorize(slug, store, s, chapter)
     typer.echo(
         f"queued {result['queued']} colorize job(s), skipped {result['skipped']}"
         f" (profile: {result['profile']})"
@@ -364,14 +403,15 @@ def keyframes(
     data_dir: Path = typer.Option(None, "--data-dir", hidden=True),
 ) -> None:
     """Queue outpaint jobs for every COLORIZED panel (Stage B2, GPU lane)."""
-    from .steps.keyframe import queue_keyframes
+    with _owner("keyframes", data_dir):
+        from .steps.keyframe import queue_keyframes
 
-    store = _store(data_dir)
-    if not store.exists(slug):
-        _fail(f"no series {slug!r}")
-    s: Settings = default_settings()
-    ratios = ratio or None
-    result = queue_keyframes(slug, store, s, ratios=ratios, chapter=chapter)
+        store = _store(data_dir)
+        if not store.exists(slug):
+            _fail(f"no series {slug!r}")
+        s: Settings = default_settings()
+        ratios = ratio or None
+        result = queue_keyframes(slug, store, s, ratios=ratios, chapter=chapter)
     typer.echo(
         f"queued {result['queued']} keyframe job(s), skipped {result['skipped']}"
         f" (ratios: {', '.join(result['ratios'])}; profile: {result['profile']})"
@@ -387,13 +427,14 @@ def render(
     data_dir: Path = typer.Option(None, "--data-dir", hidden=True),
 ) -> None:
     """Queue i2v jobs for every KEYFRAMED panel (Stage B3, GPU lane)."""
-    from .steps.render import queue_render
+    with _owner("render", data_dir):
+        from .steps.render import queue_render
 
-    store = _store(data_dir)
-    if not store.exists(slug):
-        _fail(f"no series {slug!r}")
-    s: Settings = default_settings()
-    result = queue_render(slug, store, s, ratio=ratio, chapter=chapter)
+        store = _store(data_dir)
+        if not store.exists(slug):
+            _fail(f"no series {slug!r}")
+        s: Settings = default_settings()
+        result = queue_render(slug, store, s, ratio=ratio, chapter=chapter)
     typer.echo(
         f"queued {result['queued']} render job(s), skipped {result['skipped']}"
         f" (profile: {result['profile']}, ratio: {result['ratio']})"
@@ -409,8 +450,13 @@ def monitor(
     data_dir: Path = typer.Option(None, "--data-dir", hidden=True),
 ) -> None:
     """Scheduler: submit/poll/download queued GPU jobs (Stage B)."""
-    import time as _time
 
+    with _owner("monitor", data_dir):
+        _monitor_loop(once, interval, slug, data_dir)
+    return
+
+
+def _monitor_loop(once, interval, slug, data_dir) -> None:
     s: Settings = default_settings()
     dd = data_dir if data_dir is not None else s.resolved_data_dir()
     store = SeriesStore(dd)
@@ -438,6 +484,8 @@ def monitor(
         if next_pending(q) is None and running_job(q) is None:
             typer.echo("queue drained — monitor exiting")
             return
+        import time as _time
+
         _time.sleep(interval)
 
 
