@@ -34,3 +34,32 @@ entry; new decisions append. Full context & rationale: PLAN.md + docs/research/.
 | 028 | **Queue-time state flips removed from colorize (root-cause fix + repair).** `queue_colorize` set panels to QUEUED at queue time — but QUEUED/GENERATING/GENERATED are RENDER-lane states sitting AFTER COLORIZED in MAINLINE, so the monitor's download-time advance `queued → colorized` was a backward (illegal) transition: all 243 colorized panels stranded at `queued` with color.png on disk while the run looked unfinished. Repair: all 243 relabeled COLORIZED via update_panel (bookkeeping correction — output files verified on disk first; one straggler ch01_p035_04 polled + downloaded directly, job had completed on the box but drained before reconcile). Fix: colorize/render queueing NEVER flips panel states — panels stay SCRIPTED/KEYFRAMED until their output is downloaded; only the monitor advances states, and only forward. Corollary: the monitor's drain-before-reconcile race (queue-empty exit skips the last in-flight job) is benign now — `_advance_panel` treats stale completions as no-ops and the repair path is idempotent. | 2026-09-09 |
 | 029 | **Colorize must run at NATIVE panel aspect (user-doctrine: no distortion).** Discovered via the B2 keyframe smoke: every colorize master was a 512x512 square regardless of the panel's true aspect (0.19–6.53 range) — the manganinja profile defaulted width=height=512, so non-square panels were SQUASHED on input and the colorize model invented compositions to fit (confirmed visually: color master ≠ panel content). This invalidated both the colorize outputs as B2 inputs AND the entire keyframe diag series (Qwen-Edit "reinterpretation" was largely a response to distorted references). Fixes: (a) monitor colorize submit now computes width/height from panel.png — long side 512 (profile `long_side`), short side /16-snapped; (b) all 243 color.png must be REGENERATED (queued re-run after the fix; the square masters are unusable); (c) keyframe outpaint work PAUSED pending native-aspect masters — the pad-then-fill EditPlus recipe remains the leading B2 candidate (EmptySD3Latent + VAEEncode-as-latent confirmed broken: deterministic mosaic on this stack; EditPlus-through-encoder is the only coherent conditioning). Lesson: vision-check EVERY lane's first output against its input (caught here only because I did). | 2026-09-09 |
 | 030 | **A5 discovery implemented; canonical picks need HUMAN review before sheets render.** `koma discover` (cloud-text consolidation of the 243 captions → registry proposals; reasoning-model trap fixed: glm-5.3-flash burned 22k thinking tokens before content — chat() gained `num_predict` param + `_chat_json_headroom` escalates 8000→32000 on starvation; client timeout 600s for the multi-minute call). Result: 2 recurring characters — `heroine` (silver/white long hair, gamer girlfriend, 4 outfit variants) + `male_lead` (dark short hair, 4 variants) — both `pending` in the registry, nothing auto-approved (#004). `koma canonical` (LOCAL vision word-overlap candidate ranking → vision pick): heroine→ch01_p035_02, male_lead→ch01_p003_03. VISION-CHECK of the picks found BOTH BAD as sheet sources: p035_02 = heroine's spiral-eyed ahegao closeup (expression unusable as identity ref) + p003_03 = male lead's face obscured by heroine's head/hand. Lesson: the canonical picker optimizes "clean 3/4 face view" but ahegao closeups fool it — the canonical panel choice goes through the same human card gate as everything else; user will pick better panels from the review sheet. Also: identity-word candidate ranking works (41/165 caption hits) but male_lead over-matches (generic words) — refine at sheet time with vision verification per candidate. | 2026-09-09 |
+
+
+## Current clarifications — 15 September 2026
+
+These owner-confirmed decisions supersede conflicting historical entries above
+and in PLAN.md. They record policy, not proof that every feature is implemented.
+
+- The owner states this system has never run; there is no accepted generated work
+  to migrate. Historical live-run counts and claims above are not acceptance evidence.
+- Remove automated Civitai/WD age scoring and the optional cloud Llama Guard path.
+  Keep manual review. The old gate command may remain a compatibility transition.
+- All generation stays local, including text, translations and image-bearing calls.
+  No cloud fallback. This supersedes the cloud-text allowances in #015/#017.
+- Required translations block script completion. Retry missing substeps while
+  retaining validated results for unchanged inputs.
+- Imports append; unchanged reimports do nothing. Replacement/removal is explicit.
+- Review edits order first; panel IDs remain stable. Boundary revisions invalidate
+  dependent outputs when boundary editing is introduced.
+- All configured ratios are required for aggregate completion; each can retry
+  independently and adding a ratio schedules only missing work.
+- Unapproved references are allowed only for an explicit preview; approved
+  bindings are required for output described as reference-consistent.
+- Reconcile uncertain remote submissions first; hold ambiguous attempts for review.
+- One active pipeline command. A conflicting command needs user approval to stop
+  its current owner. Status/pause/resume/stop controls remain available. GPU work
+  must support checkpointed pause/resume and resource release; ownership is not
+  implemented by merely checking service health.
+- Offloading is a performance preference, not an absolute ban. Prefer GPU execution
+  and avoid excessive LLM CPU/RAM residency; qualify performance on real hardware.

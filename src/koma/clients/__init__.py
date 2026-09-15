@@ -15,6 +15,8 @@ from typing import Any
 
 import httpx
 
+from ..network import require_local_endpoint
+
 
 class LLMError(RuntimeError):
     """LLM call failed after retries — callers decide fail-open vs fail-closed."""
@@ -31,16 +33,7 @@ def _post_with_retry(
     timeout: float,
     attempts: int = 5,
 ):
-    """POST JSON with bounded retry on transient transport errors AND
-    transient HTTP statuses (429 rate-limit, 5xx server errors).
-
-    httpx exceptions (ReadTimeout etc.) must NEVER escape raw: callers catch
-    LLMError to fail a single panel — an escaped httpx error kills the whole
-    run (learned the hard way Sep 2026: one ReadTimeout aborted a 240-panel
-    run after all vision work was done). Cloud rate-limiting under the script
-    stage's concurrency-8 pool shows up as failure-count creep (8→21 over one
-    243-panel run) unless 429/5xx are retried too.
-    """
+    """Retry transient local-server failures without proxy or cloud fallback."""
     import time
 
     last: Exception | str | None = None
@@ -56,26 +49,18 @@ def _post_with_retry(
                 last = f"http {resp.status_code}"
                 # honor Retry-After when the server sends one
                 delay = float(resp.headers.get("retry-after", 0) or 0)
-                time.sleep(min(max(delay, 2 ** attempt * 2), 20))
+                time.sleep(min(max(delay, 2**attempt * 2), 20))
                 continue
             return resp  # non-transient status: caller reports it
         if attempt < attempts - 1:
-            time.sleep(min(2 ** attempt * 2, 8))
+            time.sleep(min(2**attempt * 2, 8))
     raise LLMError(f"request failed after {attempts} attempts: {last}") from (
         last if isinstance(last, Exception) else None
     )
 
 
 class OllamaClient:
-    """Ollama chat client — local daemon or Ollama Cloud (same API shape).
-
-    Routing rule (decision #018, two lanes): image-bearing calls go to the
-    VISION endpoint (KOMA_VISION_BASE_URL, default http://127.0.0.1:11434,
-    no auth — LAN-local: the 3090 box when serving llama.cpp); text calls go
-    to cloud (KOMA_TEXT_BASE_URL, default https://ollama.com, Bearer key).
-    No cloud provider ever sees explicit images. When the vision lane runs
-    llama.cpp (OpenAI shape), the script step uses OpenAICompatClient instead.
-    """
+    """One local Ollama endpoint for both text and images; no implicit fallback."""
 
     def __init__(
         self,
@@ -83,25 +68,22 @@ class OllamaClient:
         api_key: str | None = None,
         timeout: float = 120.0,
     ):
-        cloud = "https://ollama.com"
-        local = os.environ.get("KOMA_VISION_BASE_URL", "http://127.0.0.1:11434")
-        # Explicit base_url = honour verbatim (tests/local overrides).
-        self._base = base_url if base_url is not None else os.environ.get(
-            "KOMA_TEXT_BASE_URL", cloud
-        )
-        api_key = api_key or os.environ.get("KOMA_TEXT_API_KEY") or os.environ.get("OLLAMA_API_KEY")
+        try:
+            self._base = require_local_endpoint(
+                base_url or os.environ.get("KOMA_TEXT_BASE_URL", "http://127.0.0.1:11434")
+            )
+        except ValueError as exc:
+            raise LLMError(str(exc)) from exc
+        # Local auth is explicit. Never inherit cloud credentials from the environment.
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        self._client = httpx.Client(base_url=self._base, headers=headers, timeout=timeout)
-        self._timeout = timeout
-        # second client for the OTHER lane; same object if endpoints coincide
-        other = local if self._base != local else os.environ.get("KOMA_TEXT_BASE_URL", cloud)
-        self._other = (
-            httpx.Client(base_url=other, timeout=timeout)
-            if other != self._base
-            else self._client
+        self._client = httpx.Client(
+            base_url=self._base,
+            headers=headers,
+            timeout=timeout,
+            trust_env=False,
+            follow_redirects=False,
         )
-        self._other_base = other
-        self._is_openai = False
+        self._timeout = timeout
 
     def chat(
         self,
@@ -120,7 +102,8 @@ class OllamaClient:
                 raise LLMError("images given but no user message to attach to")
             last_user = dict(last_user)
             last_user["images"] = [_b64_image(p) for p in images]
-            messages = [*messages[:-1], last_user]
+            index = max(i for i, message in enumerate(messages) if message["role"] == "user")
+            messages = [*messages[:index], last_user, *messages[index + 1 :]]
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -136,11 +119,7 @@ class OllamaClient:
         }
         if json_mode:
             payload["format"] = "json"
-        # lane routing: image-bearing calls (vision) go LOCAL; text calls go
-        # to this client's own base. When __init__ got an explicit base_url
-        # (tests), _other IS _client so behaviour is unchanged.
-        target = self._other if images else self._client
-        resp = _post_with_retry(target, "/api/chat", payload, self._timeout)
+        resp = _post_with_retry(self._client, "/api/chat", payload, self._timeout)
         if resp.status_code != 200:
             raise LLMError(f"ollama http {resp.status_code}: {resp.text[:300]}")
         data = resp.json()
@@ -169,10 +148,7 @@ class OllamaClient:
 
 
 class OpenAICompatClient(OllamaClient):
-    """OpenAI-compatible endpoint (OpenRouter etc.) — same surface, /chat/completions.
-
-    Used as the text-LLM fallback lane (decision #014: swappable adapters).
-    """
+    """Local OpenAI-compatible server, such as llama.cpp; no cloud fallback."""
 
     def chat(
         self,
@@ -196,18 +172,39 @@ class OpenAICompatClient(OllamaClient):
             ]
             parts = [text_part, *img_parts]
             last_user = {"role": "user", "content": parts}
-            messages = [*messages[:-1], last_user]
+            index = max(i for i, message in enumerate(messages) if message["role"] == "user")
+            messages = [*messages[:index], last_user, *messages[index + 1 :]]
         body: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "temperature": kw.get("temperature", 0.4),
         }
-        if kw.get("max_tokens"):
-            body["max_tokens"] = kw["max_tokens"]
+        budget = kw.get("max_tokens") or kw.get("num_predict")
+        if budget:
+            body["max_tokens"] = budget
+        if kw.get("json_mode"):
+            body["response_format"] = {"type": "json_object"}
         resp = _post_with_retry(self._client, "/v1/chat/completions", body, self._timeout)
         if resp.status_code != 200:
             raise LLMError(f"openai-compat http {resp.status_code}: {resp.text[:300]}")
-        return resp.json()["choices"][0]["message"]["content"]
+        try:
+            content = resp.json()["choices"][0]["message"]["content"]
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise LLMError("invalid local model response") from exc
+        if not isinstance(content, str) or not content.strip():
+            raise LLMError("empty completion from local model")
+        return content
+
+
+def text_client(config, timeout: float = 180.0):
+    """Build the configured local text adapter, sharing the vision server by default."""
+    if config.text_api == "openai":
+        adapter = OpenAICompatClient
+    elif config.text_api == "ollama":
+        adapter = OllamaClient
+    else:
+        raise LLMError(f"unsupported text.api: {config.text_api!r}")
+    return adapter(base_url=config.text_base_url, timeout=timeout)
 
 
 class MangaOcrClient:

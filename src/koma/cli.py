@@ -84,14 +84,11 @@ def status(
         for pg in ch_pages:
             for pn in pg.panels:
                 counts[pn.state.value] = counts.get(pn.state.value, 0) + 1
-        gate = {True: "pass", False: "REJECTED"}.get(ch.gate_passed, "—")
         detail = " ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "no panels"
         typer.echo(
-            f"  ch{ch.chapter_number:02d} [{ch.state}] gate={gate} "
+            f"  ch{ch.chapter_number:02d} [{ch.state}] "
             f"pages={len(ch_pages)} panels: {detail}"
         )
-        if ch.gate_reason:
-            typer.echo(f"         gate note: {ch.gate_reason}")
 
 
 @app.command()
@@ -230,34 +227,16 @@ def certify(
 def gate(
     slug: str = typer.Argument(...),
     chapter: int = typer.Option(1, "--chapter", help="Chapter number."),
-    enabled: bool = typer.Option(
-        False,
-        "--enabled",
-        help="Opt-in: legacy age scoring (decision #013). Default: pass-through (#023).",
-    ),
-    llama_guard: bool = typer.Option(
-        False,
-        "--llama-guard",
-        help="Enable optional Llama-Guard-4 signal (needs KOMA_OPENROUTER_API_KEY).",
-    ),
     data_dir: Path = typer.Option(None, "--data-dir", hidden=True),
 ) -> None:
-    """Chapter gate (A3). Default: pass-through (decision #023 removed the auto gate)."""
-    from .steps.gate import GateVerdict, gate_series_chapter
+    """Compatibility command: no scoring. Reviewed panels can be scripted directly."""
+    from .steps.gate import gate_series_chapter
 
     store = _store(data_dir)
     if not store.exists(slug):
         _fail(f"no series {slug!r}")
-    verdict, reason = gate_series_chapter(
-        store, slug, chapter, enabled=enabled, use_llama_guard=llama_guard
-    )
-    if verdict is GateVerdict.REJECT:
-        typer.echo(f"GATE REJECTED ch{chapter:02d}: {reason}", err=True)
-        raise typer.Exit(1) from None
-    if enabled:
-        typer.echo(f"gate passed ch{chapter:02d} — panels may advance")
-    else:
-        typer.echo(f"gate skipped (removed, decision #023) ch{chapter:02d} — panels advanced")
+    gate_series_chapter(store, slug, chapter)
+    typer.echo(f"gate skipped: automated scoring removed (ch{chapter:02d})")
 
 
 @app.command()
@@ -272,17 +251,17 @@ def script(
     ),
     data_dir: Path = typer.Option(None, "--data-dir", hidden=True),
 ) -> None:
-    """Script every GATED panel: captions, OCR, motion, translations (A4)."""
+    """Script reviewed panels: captions, OCR, motion, translations (A4)."""
     from .steps.script import script_chapter
 
     store = _store(data_dir)
     if not store.exists(slug):
         _fail(f"no series {slug!r}")
     if dry_run:
-        pages = [p for p in store.load_pages(slug) if p.chapter == chapter]
-        n = sum(1 for p in pages for pn in p.panels if pn.state is PanelState.GATED)
+        summary = script_chapter(store, slug, chapter, dry_run=True, limit=limit)
+        n = summary["would_script"]
         typer.echo(
-            f"dry-run: {n} GATED panel(s) would be scripted (vision → OCR → motion → translate)"
+            f"dry-run: {n} eligible panel(s) would be scripted (vision → OCR → motion → translate)"
         )
         return
     summary = script_chapter(store, slug, chapter, limit=limit)

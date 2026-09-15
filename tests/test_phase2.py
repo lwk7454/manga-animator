@@ -1,9 +1,4 @@
-"""Phase 2 tests — age-gate (red-team, fail-closed), clients, script stage.
-
-All offline: gate scorers are injected fakes; LLM client is mocked with respx-
-style httpx mocking (no network); manga-ocr is instantiated only via the
-lazy-load guard (not exercised without weights).
-"""
+"""Offline script/client tests and removed-scoring compatibility."""
 
 from __future__ import annotations
 
@@ -16,218 +11,20 @@ from typer.testing import CliRunner
 
 from koma.cli import app
 from koma.models.domain import PanelState
-from koma.steps.gate import (
-    GateSignal,
-    GateVerdict,
-    gate_page,
-    gate_series_chapter,
-)
 from koma.storage.series_store import SeriesStore
 
 runner = CliRunner()
 
 
-# ── fake scorers ─────────────────────────────────────────────────────────────
-
-
-def fake_civitai(child: float):
-    def _score(_path: Path) -> dict[str, Any]:
-        return {"child": child, "raw": {}}
-
-    return _score
-
-
-def fake_wd(tags: dict[str, float] | None = None):
-    def _score(_path: Path) -> dict[str, float]:
-        base = {"general": 0.9, "sensitive": 0.4}
-        if tags:
-            base.update(tags)
-        return base
-
-    return _score
-
-
-@pytest.fixture()
-def gate_store(tmp_path: Path) -> tuple[SeriesStore, str]:
-    """A series with one ingested page + certified panels (ORDERED)."""
-    from tests.test_phase1 import PANELS_GRID, draw_page
-
-    src = tmp_path / "src"
-    src.mkdir()
-    draw_page(src / "001.jpg", PANELS_GRID)
-    d = tmp_path / "data"
-    runner.invoke(app, ["new", "g", "--direction", "rtl", "--data-dir", str(d)])
-    runner.invoke(app, ["ingest", "g", str(src), "--data-dir", str(d)])
-    runner.invoke(app, ["certify", "g", "--page", "1", "--data-dir", str(d)])
-    store = SeriesStore(d)
-    assert all(pn.state is PanelState.ORDERED for pn in store.load_pages("g")[0].panels)
-    return store, "g"
-
-
-class TestGateFailClosed:
-    def test_clean_scores_pass(self, tmp_path: Path) -> None:
-        img = tmp_path / "img.png"
-        img.write_bytes(b"x")  # scorers are fakes; bytes irrelevant
-        result = gate_page(img, civitai_scorer=fake_civitai(0.01), wd_scorer=fake_wd())
-        assert result.verdict is GateVerdict.PASS
-        assert not result.model_errors
-
-    def test_civitai_child_rejects(self, tmp_path: Path) -> None:
-        img = tmp_path / "img.png"
-        img.write_bytes(b"x")
-        result = gate_page(img, civitai_scorer=fake_civitai(0.9), wd_scorer=fake_wd())
-        assert result.verdict is GateVerdict.REJECT
-        assert any("civitai" in r for r in result.reject_reasons)
-
-    def test_wd_minor_tag_rejects(self, tmp_path: Path) -> None:
-        img = tmp_path / "img.png"
-        img.write_bytes(b"x")
-        result = gate_page(img, civitai_scorer=fake_civitai(0.01), wd_scorer=fake_wd({"loli": 0.8}))
-        assert result.verdict is GateVerdict.REJECT
-
-    def test_civitai_error_fails_closed(self, tmp_path: Path) -> None:
-        img = tmp_path / "img.png"
-        img.write_bytes(b"x")
-
-        def boom(_p: Path) -> dict[str, Any]:
-            raise RuntimeError("model exploded")
-
-        result = gate_page(img, civitai_scorer=boom, wd_scorer=fake_wd())
-        assert result.verdict is GateVerdict.REJECT
-        assert GateSignal.MODEL_ERROR in [f.signal for f in result.findings]
-
-    def test_wd_error_fails_closed(self, tmp_path: Path) -> None:
-        img = tmp_path / "img.png"
-        img.write_bytes(b"x")
-
-        def boom(_p: Path) -> dict[str, float]:
-            raise RuntimeError("onnx crash")
-
-        result = gate_page(img, civitai_scorer=fake_civitai(0.01), wd_scorer=boom)
-        assert result.verdict is GateVerdict.REJECT
-
-    def test_timeout_fails_closed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import time as _time
-
-        img = tmp_path / "img.png"
-        img.write_bytes(b"x")
-        monkeypatch.setattr("koma.steps.gate.GATE_TIMEOUT_S", 0.0)
-        # sleep tiny bit so monotonic delta exceeds 0.0 timeout
-        result = gate_page(
-            img,
-            civitai_scorer=lambda p: (_time.sleep(0.01), fake_civitai(0.01)(p))[1],
-            wd_scorer=fake_wd(),
-        )
-        assert result.verdict is GateVerdict.REJECT
-
-    def test_missing_source_file_rejects_chapter(self, gate_store: tuple[SeriesStore, str]) -> None:
-        store, slug = gate_store
-        # delete the source page → fail-closed
-        page = store.load_pages(slug)[0]
-        (store.series_dir(slug) / "source" / page.source_path).unlink()
-        verdict, reason = gate_series_chapter(store, slug, 1, enabled=True)
-        assert verdict is GateVerdict.REJECT
-        assert reason is not None and "missing" in reason
-
-    def test_chapter_gate_pass_advances_certified_only(
-        self, gate_store: tuple[SeriesStore, str]
-    ) -> None:
-        store, slug = gate_store
-        # page 1 panels are ORDERED (certified). A second page that is NOT
-        # certified must stay AWAITING after a passing gate.
-        from tests.test_phase1 import PANELS_GRID, draw_page
-
-        sdir = store.series_dir(slug) / "source" / "ch01"
-        draw_page(sdir / "p002.jpg", PANELS_GRID)
-        pages = store.load_pages(slug)
-        assert len(pages) == 1
-        page2 = pages[0].model_copy(deep=True)
-        page2.page_number = 2
-        page2.source_path = "ch01/p002.jpg"
-        for pn in page2.panels:
-            pn.panel_id = pn.panel_id.replace("_p001_", "_p002_")
-            pn.state = PanelState.AWAITING_ORDER_REVIEW
-        pages.append(page2)
-        store.save_pages(slug, pages)
-
-        verdict, _ = gate_series_chapter(
-            store, slug, 1, enabled=True, civitai_scorer=fake_civitai(0.01), wd_scorer=fake_wd()
-        )
-        assert verdict is GateVerdict.PASS
-        after = store.load_pages(slug)
-        certified = [pn for pg in after if pg.page_number == 1 for pn in pg.panels]
-        awaiting = [pn for pg in after if pg.page_number == 2 for pn in pg.panels]
-        assert all(pn.state is PanelState.GATED for pn in certified)
-        assert all(pn.state is PanelState.AWAITING_ORDER_REVIEW for pn in awaiting)
-
-    def test_chapter_gate_reject_keeps_panels_untouched(
-        self, gate_store: tuple[SeriesStore, str]
-    ) -> None:
-        store, slug = gate_store
-        verdict, _ = gate_series_chapter(
-            store, slug, 1, enabled=True, civitai_scorer=fake_civitai(0.99), wd_scorer=fake_wd()
-        )
-        assert verdict is GateVerdict.REJECT
-        panels = [pn for pg in store.load_pages(slug) for pn in pg.panels]
-        assert all(pn.state is PanelState.ORDERED for pn in panels)  # untouched
-        ch = store.load_chapters(slug)[0]
-        assert ch.gate_passed is False and ch.gate_reason
-
-    def test_gate_log_persisted(self, gate_store: tuple[SeriesStore, str]) -> None:
-        from koma.steps.gate import chapter_gate_summary
-
-        store, slug = gate_store
-        gate_series_chapter(
-            store,
-            slug,
-            1,
-            enabled=True,
-            civitai_scorer=fake_civitai(0.01),
-            wd_scorer=fake_wd(),
-        )
-        summary = chapter_gate_summary(store, slug, 1)
-        assert summary["gated"] and summary["verdict"] == "pass"
-
-
-class TestGateCLI:
-    def test_cli_gate_passthrough_default(self, gate_store: tuple[SeriesStore, str]) -> None:
-        store, slug = gate_store
-        d = str(store.data_dir)
-        r = runner.invoke(app, ["gate", slug, "--data-dir", d])
-        assert r.exit_code == 0, r.output
-        assert "gate skipped" in r.output
-        # panels advanced even though no scoring ran (decision #023)
-        panels = [pn for pg in store.load_pages(slug) for pn in pg.panels]
-        assert all(pn.state is PanelState.GATED for pn in panels)
-
-    def test_cli_gate_enabled_pass_exit_zero(
-        self, gate_store: tuple[SeriesStore, str], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        import koma.steps.gate as gate_mod
-
-        monkeypatch.setattr(gate_mod, "score_civitai", fake_civitai(0.01))
-        monkeypatch.setattr(gate_mod, "score_wd_tagger", fake_wd())
-        store, slug = gate_store
-        d = str(store.data_dir)
-        r = runner.invoke(app, ["gate", slug, "--data-dir", d, "--enabled"])
-        assert r.exit_code == 0, r.output
-        assert "gate passed" in r.output
-
-    def test_cli_gate_enabled_reject_exit_one(
-        self, gate_store: tuple[SeriesStore, str], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        store, slug = gate_store
-        d = str(store.data_dir)
-        # The gate CLI uses the module-level default scorers; patch the DEFAULT
-        # parameters via the gate_series_chapter signature path — simplest is
-        # patching both module scorers AND calling through the CLI.
-        import koma.steps.gate as gate_mod
-
-        monkeypatch.setattr(gate_mod, "score_civitai", fake_civitai(0.99), raising=False)
-        monkeypatch.setattr(gate_mod, "score_wd_tagger", fake_wd(), raising=False)
-        r = runner.invoke(app, ["gate", slug, "--data-dir", d, "--enabled"])
-        assert r.exit_code == 1, r.output
-        assert "GATE REJECTED" in r.output
+class TestRemovedGate:
+    def test_compatibility_command_has_no_scoring_flags(self, tmp_path):
+        store, slug = _script_store(tmp_path)
+        result = runner.invoke(app, ["gate", slug, "--data-dir", str(store.data_dir)])
+        assert result.exit_code == 0
+        assert "automated scoring removed" in result.output
+        for flag in ("--enabled", "--llama-guard"):
+            result = runner.invoke(app, ["gate", slug, flag, "--data-dir", str(store.data_dir)])
+            assert result.exit_code == 2
 
 
 # ── script stage (mocked LLM + fake OCR) ─────────────────────────────────────
@@ -313,15 +110,6 @@ class TestScriptStage:
         assert summary["failed"] == 6 and summary["scripted"] == 0
         panels = [pn for pg in store.load_pages(slug) for pn in pg.panels]
         assert all(pn.state is PanelState.SCRIPT_FAILED for pn in panels)
-        # SCRIPT_FAILED → GATED re-entry (re-run the gate advance), then
-        # re-script with a working client recovers
-        gate_series_chapter(
-            store, slug, 1, enabled=True, civitai_scorer=fake_civitai(0.01), wd_scorer=fake_wd()
-        )
-        gated_back = [
-            pn for pg in store.load_pages(slug) for pn in pg.panels if pn.state is PanelState.GATED
-        ]
-        assert len(gated_back) == 6
         summary2 = script_chapter(store, slug, 1, client=FakeClient(), ocr=FakeOcr())
         assert summary2["scripted"] == 6
 
@@ -346,7 +134,7 @@ class TestScriptCLI:
         store, slug = _script_store(tmp_path)
         r = runner.invoke(app, ["script", slug, "--dry-run", "--data-dir", str(store.data_dir)])
         assert r.exit_code == 0, r.output
-        assert "6 GATED panel(s)" in r.output
+        assert "6 eligible panel(s)" in r.output
 
     def test_cli_script_success(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         store, slug = _script_store(tmp_path)
@@ -390,11 +178,10 @@ class TestClients:
             captured["body"] = json.loads(request.content)
             return _httpx.Response(200, json={"message": {"content": "hi"}})
 
-        client = OllamaClient(base_url="http://test")
+        client = OllamaClient(base_url="http://127.0.0.1:11434")
         client._client = _httpx.Client(
-            base_url="http://test", transport=_httpx.MockTransport(handler)
+            base_url="http://127.0.0.1:11434", transport=_httpx.MockTransport(handler)
         )
-        client._other = client._client  # image lane → same mock (test only)
         out = client.chat(
             "m", [{"role": "user", "content": "describe"}], images=[img]
         )
@@ -412,9 +199,9 @@ class TestClients:
             content = 'Sure! {"lines": [{"jp": "x"}]}'
             return _httpx.Response(200, json={"message": {"content": content}})
 
-        client = OllamaClient(base_url="http://test")
+        client = OllamaClient(base_url="http://127.0.0.1:11434")
         client._client = _httpx.Client(
-            base_url="http://test", transport=_httpx.MockTransport(handler)
+            base_url="http://127.0.0.1:11434", transport=_httpx.MockTransport(handler)
         )
         data = client.chat_json("m", [{"role": "user", "content": "q"}])
         assert data == {"lines": [{"jp": "x"}]}
@@ -427,14 +214,14 @@ class TestClients:
         def handler(request: _httpx.Request) -> _httpx.Response:
             return _httpx.Response(200, json={"message": {"content": "no json here"}})
 
-        client = OllamaClient(base_url="http://test")
+        client = OllamaClient(base_url="http://127.0.0.1:11434")
         client._client = _httpx.Client(
-            base_url="http://test", transport=_httpx.MockTransport(handler)
+            base_url="http://127.0.0.1:11434", transport=_httpx.MockTransport(handler)
         )
         with pytest.raises(LLMError):
             client.chat_json("m", [{"role": "user", "content": "q"}])
 
-    def test_api_key_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_cloud_api_key_is_not_inherited(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx as _httpx
 
         from koma.clients import OllamaClient
@@ -448,7 +235,7 @@ class TestClients:
 
         # Preserve the actual constructor's headers while replacing all transport
         # routing, including proxy mounts inherited from the environment.
-        client = OllamaClient(base_url="http://test")
+        client = OllamaClient(base_url="http://127.0.0.1:11434")
         original = client._client
         client._client = _httpx.Client(
             base_url=original.base_url, headers=original.headers,
@@ -456,4 +243,4 @@ class TestClients:
         )
         original.close()
         client.chat("m", [{"role": "user", "content": "q"}])
-        assert captured["auth"] == "Bearer sk-test"
+        assert captured["auth"] is None

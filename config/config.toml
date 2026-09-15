@@ -10,7 +10,11 @@ config = "config"
 profile_default = "minimax_h3_fl2va_turbo"   # decision #020: stock lane, zero-config
 
 [text]
-llm = "glm-5.3-flash"                # Ollama Cloud (decision #015); env: KOMA_TEXT_API_KEY
+# Reuse the local vision server for text to avoid loading a second model.
+# Change model/API to match your installed local server; no cloud fallback.
+llm = "qwen2.5-vl-7b"
+api = "openai"
+# base_url defaults to vision.base_url; override with KOMA_TEXT_BASE_URL.
 
 [vision]
 # llama.cpp server ON THE 3090 BOX (decision #024): OpenAI-shape /v1/chat/completions,

@@ -59,12 +59,21 @@ class Settings:
 
     @property
     def text_llm(self) -> str:
-        return str(self.get("text.llm", "glm-5.3-flash"))
+        return str(self.env("KOMA_TEXT_MODEL") or self.get("text.llm", self.vision_model))
+
+    @property
+    def text_base_url(self) -> str:
+        return str(self.env("KOMA_TEXT_BASE_URL") or self.get("text.base_url")
+                   or self.vision_base_url or "http://127.0.0.1:11434")
+
+    @property
+    def text_api(self) -> str:
+        return str(self.get("text.api", "openai"))
 
     @property
     def vision_base_url(self) -> str | None:
         """Vision endpoint base URL; None = legacy local Ollama on the Mac."""
-        raw = self.get("vision.base_url")
+        raw = self.env("KOMA_VISION_BASE_URL") or self.get("vision.base_url")
         return str(raw) if raw else None
 
     @property

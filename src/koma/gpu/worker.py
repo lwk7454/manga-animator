@@ -19,6 +19,7 @@ import httpx
 
 from ..log import get_logger
 from ..models.domain import JobStatus
+from ..network import require_local_endpoint
 from .sizing import read_frame_grid
 
 log = get_logger("gpu.worker")
@@ -32,7 +33,7 @@ class ComfyUIWorker:
     """Thin ComfyUI HTTP client for koma's GPU lanes."""
 
     def __init__(self, host: str, port: int = 8188, timeout: float = 60.0):
-        self.base = f"http://{host}:{port}"
+        self.base = require_local_endpoint(f"http://{host}:{port}")
         self.host = host
         self.port = port
         self.timeout = timeout
@@ -40,7 +41,9 @@ class ComfyUIWorker:
     # ── health / introspection ──────────────────────────────────────────────
     def is_online(self) -> bool:
         try:
-            r = httpx.get(f"{self.base}/system_stats", timeout=3.0)
+            r = httpx.get(
+                f"{self.base}/system_stats", timeout=3.0, trust_env=False, follow_redirects=False
+            )
             return r.status_code == 200
         except httpx.HTTPError:
             return False
@@ -49,7 +52,7 @@ class ComfyUIWorker:
         url = f"{self.base}/object_info"
         if node_type:
             url += f"/{node_type}"
-        r = httpx.get(url, timeout=self.timeout)
+        r = httpx.get(url, timeout=self.timeout, trust_env=False, follow_redirects=False)
         r.raise_for_status()
         return r.json()
 
@@ -70,6 +73,8 @@ class ComfyUIWorker:
             files={"image": (unique, path.read_bytes())},
             data={"overwrite": "true", "type": "input"},
             timeout=self.timeout,
+            trust_env=False,
+            follow_redirects=False,
         )
         r.raise_for_status()
         name = r.json().get("name")
@@ -85,7 +90,13 @@ class ComfyUIWorker:
         surfaced as GPUError (never a bare httpx error).
         """
         payload = {"prompt": workflow, "client_id": f"koma-{uuid.uuid4().hex[:8]}"}
-        r = httpx.post(f"{self.base}/prompt", json=payload, timeout=self.timeout)
+        r = httpx.post(
+            f"{self.base}/prompt",
+            json=payload,
+            timeout=self.timeout,
+            trust_env=False,
+            follow_redirects=False,
+        )
         if r.status_code != 200:
             raise GPUError(f"submit failed ({r.status_code}): {r.text}"[:400])
         data = r.json()
@@ -97,7 +108,12 @@ class ComfyUIWorker:
 
     def poll(self, prompt_id: str) -> JobStatus:
         """Current status of a job. nowhere-on-server ⇒ FAILED (vidgen #32)."""
-        r = httpx.get(f"{self.base}/history/{prompt_id}", timeout=self.timeout)
+        r = httpx.get(
+            f"{self.base}/history/{prompt_id}",
+            timeout=self.timeout,
+            trust_env=False,
+            follow_redirects=False,
+        )
         r.raise_for_status()
         history = r.json()
         if prompt_id in history:
@@ -109,16 +125,24 @@ class ComfyUIWorker:
                 return JobStatus.GENERATED
             return JobStatus.GENERATING
         # Not in history: check the live queue before declaring it lost.
-        q = httpx.get(f"{self.base}/queue", timeout=self.timeout).json()
-        ids = {e[1] for e in q.get("queue_running", [])} | {e[1] for e in
-            q.get("queue_pending", [])}
+        q = httpx.get(
+            f"{self.base}/queue", timeout=self.timeout, trust_env=False, follow_redirects=False
+        ).json()
+        ids = {e[1] for e in q.get("queue_running", [])} | {
+            e[1] for e in q.get("queue_pending", [])
+        }
         if prompt_id in ids:
             return JobStatus.GENERATING
         return JobStatus.FAILED
 
     def download_output(self, prompt_id: str, output: Path) -> Path:
         """Download the first image output of a completed job."""
-        r = httpx.get(f"{self.base}/history/{prompt_id}", timeout=self.timeout)
+        r = httpx.get(
+            f"{self.base}/history/{prompt_id}",
+            timeout=self.timeout,
+            trust_env=False,
+            follow_redirects=False,
+        )
         r.raise_for_status()
         entry = r.json().get(prompt_id, {})
         outputs = entry.get("outputs", {})
@@ -135,7 +159,12 @@ class ComfyUIWorker:
         SaveImage emits ``images``; SaveVideo/VHS emit ``videos``/``gifs``
         with the same filename/subfolder/type shape.
         """
-        r = httpx.get(f"{self.base}/history/{prompt_id}", timeout=self.timeout)
+        r = httpx.get(
+            f"{self.base}/history/{prompt_id}",
+            timeout=self.timeout,
+            trust_env=False,
+            follow_redirects=False,
+        )
         r.raise_for_status()
         entry = r.json().get(prompt_id, {})
         outputs = entry.get("outputs", {})
@@ -147,14 +176,11 @@ class ComfyUIWorker:
         raise GPUError(f"job {prompt_id} produced no downloadable outputs")
 
     def _fetch_view(self, item: dict[str, Any], output: Path) -> Path:
-        url = (
-            f"{self.base}/view?filename={item['filename']}"
-            f"&type={item.get('type', 'output')}"
-        )
+        url = f"{self.base}/view?filename={item['filename']}&type={item.get('type', 'output')}"
         if item.get("subfolder"):
             url += f"&subfolder={item['subfolder']}"
         output.parent.mkdir(parents=True, exist_ok=True)
-        content = httpx.get(url, timeout=self.timeout * 4)
+        content = httpx.get(url, timeout=self.timeout * 4, trust_env=False, follow_redirects=False)
         content.raise_for_status()
         output.write_bytes(content.content)
         log.info("downloaded %s (%d bytes)", output.name, len(content.content))
@@ -166,6 +192,8 @@ class ComfyUIWorker:
                 f"{self.base}/free",
                 json={"unload_models": True, "free_memory": True},
                 timeout=self.timeout,
+                trust_env=False,
+                follow_redirects=False,
             )
             return r.status_code == 200
         except httpx.HTTPError as exc:

@@ -19,11 +19,13 @@ from koma.models.domain import JobStatus, PanelState, ReadingDirection
 
 # ── sizing (17n+5 doctrine) ──────────────────────────────────────────────────
 
+
 class TestSizing:
     def test_read_grid_from_object_info(self):
         info = {
-            "SomeNode": {"input": {"required": {"length": [56, {"min": 5, "max": 362, "step":
-                17}]}}}
+            "SomeNode": {
+                "input": {"required": {"length": [56, {"min": 5, "max": 362, "step": 17}]}}
+            }
         }
         assert read_frame_grid(info, "SomeNode") == (5, 17)
 
@@ -45,86 +47,105 @@ class TestSizing:
 
 # ── worker (respx-mocked HTTP) ───────────────────────────────────────────────
 
+
 class TestWorker:
     @respx.mock
     def test_submit_returns_prompt_id(self):
-        respx.post("http://b:8188/prompt").mock(
+        respx.post("http://192.168.50.103:8188/prompt").mock(
             return_value=httpx.Response(200, json={"prompt_id": "abc"})
         )
-        w = ComfyUIWorker("b")
+        w = ComfyUIWorker("192.168.50.103")
         assert w.submit({"1": {"inputs": {}}}, "pre") == "abc"
 
     @respx.mock
     def test_submit_validation_error_raises(self):
-        respx.post("http://b:8188/prompt").mock(
+        respx.post("http://192.168.50.103:8188/prompt").mock(
             return_value=httpx.Response(400, json={"error": "bad node"})
         )
-        w = ComfyUIWorker("b")
+        w = ComfyUIWorker("192.168.50.103")
         with pytest.raises(GPUError, match="bad node"):
             w.submit({"1": {"inputs": {}}}, "pre")
 
     @respx.mock
     def test_poll_nowhere_is_failed(self):
         """vidgen decision #32: nowhere on server ⇒ FAILED (no zombies)."""
-        respx.get("http://b:8188/history/p1").mock(return_value=httpx.Response(200, json={}))
-        respx.get("http://b:8188/queue").mock(
+        respx.get("http://192.168.50.103:8188/history/p1").mock(
+            return_value=httpx.Response(200, json={})
+        )
+        respx.get("http://192.168.50.103:8188/queue").mock(
             return_value=httpx.Response(200, json={"queue_running": [], "queue_pending": []})
         )
-        w = ComfyUIWorker("b")
+        w = ComfyUIWorker("192.168.50.103")
         assert w.poll("p1") is JobStatus.FAILED
 
     @respx.mock
     def test_poll_running_in_queue(self):
-        respx.get("http://b:8188/history/p1").mock(return_value=httpx.Response(200, json={}))
-        respx.get("http://b:8188/queue").mock(
+        respx.get("http://192.168.50.103:8188/history/p1").mock(
+            return_value=httpx.Response(200, json={})
+        )
+        respx.get("http://192.168.50.103:8188/queue").mock(
             return_value=httpx.Response(
                 200, json={"queue_running": [[9, "p1"]], "queue_pending": []}
             )
         )
-        w = ComfyUIWorker("b")
+        w = ComfyUIWorker("192.168.50.103")
         assert w.poll("p1") is JobStatus.GENERATING
 
     @respx.mock
     def test_poll_completed(self):
-        respx.get("http://b:8188/history/p1").mock(return_value=httpx.Response(200, json={
-            "p1": {
-                "status": {"status_str": "success", "completed": True},
-                "outputs": {"17": {"images": [{"filename": "x.png", "type": "output"}]}},
-            }
-        }))
-        w = ComfyUIWorker("b")
+        respx.get("http://192.168.50.103:8188/history/p1").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "p1": {
+                        "status": {"status_str": "success", "completed": True},
+                        "outputs": {"17": {"images": [{"filename": "x.png", "type": "output"}]}},
+                    }
+                },
+            )
+        )
+        w = ComfyUIWorker("192.168.50.103")
         assert w.poll("p1") is JobStatus.GENERATED
 
     @respx.mock
     def test_download_output(self, tmp_path):
-        respx.get("http://b:8188/history/p1").mock(return_value=httpx.Response(200, json={
-            "p1": {"outputs": {"17": {"images": [{"filename": "x.png", "type": "output"}]}}}
-        }))
-        respx.get("http://b:8188/view").mock(return_value=httpx.Response(200, content=b"PNGDATA"))
-        w = ComfyUIWorker("b")
+        respx.get("http://192.168.50.103:8188/history/p1").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "p1": {"outputs": {"17": {"images": [{"filename": "x.png", "type": "output"}]}}}
+                },
+            )
+        )
+        respx.get("http://192.168.50.103:8188/view").mock(
+            return_value=httpx.Response(200, content=b"PNGDATA")
+        )
+        w = ComfyUIWorker("192.168.50.103")
         out = tmp_path / "color.png"
         w.download_output("p1", out)
         assert out.read_bytes() == b"PNGDATA"
 
     @respx.mock
     def test_download_no_outputs_raises(self, tmp_path):
-        respx.get("http://b:8188/history/p1").mock(
+        respx.get("http://192.168.50.103:8188/history/p1").mock(
             return_value=httpx.Response(200, json={"p1": {"outputs": {}}})
         )
-        w = ComfyUIWorker("b")
+        w = ComfyUIWorker("192.168.50.103")
         with pytest.raises(GPUError, match="no image outputs"):
             w.download_output("p1", tmp_path / "c.png")
 
     @respx.mock
     def test_free_vram(self):
-        respx.post("http://b:8188/free").mock(return_value=httpx.Response(200, json={}))
-        w = ComfyUIWorker("b")
+        respx.post("http://192.168.50.103:8188/free").mock(
+            return_value=httpx.Response(200, json={})
+        )
+        w = ComfyUIWorker("192.168.50.103")
         assert w.free_vram() is True
 
     @respx.mock
     def test_free_vram_offline_is_false(self):
-        respx.post("http://b:8188/free").mock(side_effect=httpx.ConnectError("down"))
-        w = ComfyUIWorker("b")
+        respx.post("http://192.168.50.103:8188/free").mock(side_effect=httpx.ConnectError("down"))
+        w = ComfyUIWorker("192.168.50.103")
         assert w.free_vram() is False
 
     def test_set_path(self):
@@ -142,6 +163,7 @@ class TestWorker:
 
 
 # ── adapters registry ────────────────────────────────────────────────────────
+
 
 class TestAdapters:
     def test_load_real_colorize_profile(self):
@@ -179,6 +201,7 @@ class TestAdapters:
 
 # ── scheduler queue + pause semantics ────────────────────────────────────────
 
+
 class TestQueue:
     def test_pause_flag_roundtrip(self, tmp_path):
         from koma.scheduler.queue import is_paused, set_paused
@@ -211,6 +234,7 @@ class TestQueue:
 
 # ── colorize step (fake store end-to-end, no HTTP) ───────────────────────────
 
+
 @pytest.fixture
 def mini_series(tmp_path, monkeypatch):
     """A tiny series with one SCRIPTED panel + card registry, config pointed at tmp."""
@@ -224,8 +248,12 @@ def mini_series(tmp_path, monkeypatch):
     from koma.models.domain import BBox, Page, Panel
 
     page = Page(
-        chapter=1, page_number=1, source_path="ch01/p001.jpg",
-        width=1000, height=1400, direction_resolved=ReadingDirection.RTL,
+        chapter=1,
+        page_number=1,
+        source_path="ch01/p001.jpg",
+        width=1000,
+        height=1400,
+        direction_resolved=ReadingDirection.RTL,
         panels=[
             Panel(
                 panel_id="ch01_p001_01",
@@ -239,13 +267,20 @@ def mini_series(tmp_path, monkeypatch):
     ch_dir = store.chapter_dir("testseries", 1)
     (ch_dir / "panels" / "ch01_p001_01").mkdir(parents=True)
     (ch_dir / "panels" / "ch01_p001_01" / "panel.png").write_bytes(b"PNG")
-    (ch_dir / "script.json").write_text(json.dumps({
-        "panels": {
-            "ch01_p001_01": {
-                "panel_id": "ch01_p001_01", "caption": "a girl in a garden", "characters": []
+    (ch_dir / "script.json").write_text(
+        json.dumps(
+            {
+                "panels": {
+                    "ch01_p001_01": {
+                        "panel_id": "ch01_p001_01",
+                        "caption": "a girl in a garden",
+                        "characters": [],
+                    }
+                }
             }
-        }
-    }), encoding="utf-8")
+        ),
+        encoding="utf-8",
+    )
     return store
 
 
@@ -253,9 +288,13 @@ class TestColorizeStep:
     def test_queue_and_reconcile_happy_path(self, mini_series, tmp_path, monkeypatch):
         from koma.steps import colorize as cz
 
-        fake_settings = type("S", (), {
-            "resolved_config_dir": lambda self: Path(__file__).parent.parent / "config",
-        })()
+        fake_settings = type(
+            "S",
+            (),
+            {
+                "resolved_config_dir": lambda self: Path(__file__).parent.parent / "config",
+            },
+        )()
 
         result = cz.queue_colorize("testseries", mini_series, fake_settings)
         assert result["queued"] == 1
@@ -274,8 +313,10 @@ class TestColorizeStep:
         class FakeWorker:
             def __init__(self):
                 self.downloads = []
+
             def poll(self, pid):
                 return JobStatus.GENERATED
+
             def download_output(self, pid, out):
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(b"COLOR")

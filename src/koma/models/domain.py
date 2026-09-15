@@ -136,7 +136,16 @@ class Panel(BaseModel):
 
 class Chapter(BaseModel):
     chapter_number: int
-    state: Literal["pending", "ingested", "reviewed", "gated", "scripted", "rendering", "complete"]
+    state: Literal[
+        "pending",
+        "ingested",
+        "reviewed",
+        "gated",
+        "script_incomplete",
+        "scripted",
+        "rendering",
+        "complete",
+    ]
     pages: list[Page] = Field(default_factory=list)
     gate_passed: bool | None = None  # decision #013: None = not yet run
     gate_reason: str | None = None

@@ -205,7 +205,7 @@ class TestConfig:
     def test_defaults_from_committed_toml(self) -> None:
         s = Settings()
         assert s.video_profile_default == "minimax_h3_fl2va_turbo"
-        assert s.text_llm == "glm-5.3-flash"
+        assert s.text_llm == "qwen2.5-vl-7b"
         assert s.gpu_host == "192.168.50.103"
         assert s.gpu_port == 8188
 
@@ -255,7 +255,7 @@ class TestCLI:
         r = runner.invoke(app, ["status", "ghost", "--data-dir", str(tmp_path / "d")])
         assert r.exit_code == 2
 
-    def test_status_shows_chapter_and_gate(self, tmp_path: Path) -> None:
+    def test_status_shows_chapter_without_removed_scoring(self, tmp_path: Path) -> None:
         d = tmp_path / "d"
         runner.invoke(app, ["new", "s2", "--data-dir", str(d)])
         store = SeriesStore(d)
@@ -263,8 +263,9 @@ class TestCLI:
         store.set_chapter_gate("s2", 1, False, "seeded test page rejected")
         r = runner.invoke(app, ["status", "s2", "--data-dir", str(d)])
         assert r.exit_code == 0
-        assert "ch01" in r.output and "REJECTED" in r.output
-        assert "seeded test page rejected" in r.output
+        assert "ch01" in r.output
+        assert "REJECTED" not in r.output
+        assert "gate=" not in r.output
 
     def test_pause_resume(self, tmp_path: Path) -> None:
         d = tmp_path / "d"

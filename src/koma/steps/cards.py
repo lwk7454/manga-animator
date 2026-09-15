@@ -4,7 +4,7 @@ Runs AFTER A4 scripting over the already-captured captions/panels:
 1. VISION pass: sample candidate canonical panels (visually distinct, at
    least one face/figure per character) via the local vision model — no
    cloud sees art (#018).
-2. TEXT pass: consolidate per-panel mention lists (glm, cloud, cheap) into
+2. TEXT pass: consolidate per-panel mention lists with the local model into
    a deduped cast proposal — each character gets identity descriptors, a
    palette guess, a proposed canonical panel, and outfit variants.
 3. Everything lands in the registry with review_status=pending. The card
@@ -19,7 +19,7 @@ import re
 import unicodedata
 from typing import Any
 
-from ..clients import LLMError, OpenAICompatClient
+from ..clients import LLMError, OpenAICompatClient, text_client
 from ..config import Settings
 from ..log import get_logger
 from ..models.domain import CharacterCard, CharacterVariant
@@ -27,7 +27,7 @@ from ..storage.series_store import SeriesStore
 
 log = get_logger(__name__)
 
-# Per-panel mention extraction (cloud text — captions already exist in
+# Per-panel mention extraction (local text — captions already exist in
 # script.json, no NEW vision calls needed for the consolidation pass).
 MENTIONS_PROMPT = (
     "You are given vision captions of consecutive manga panels. Identify the "
@@ -43,7 +43,7 @@ MENTIONS_PROMPT = (
     "Panel captions:\n{captions}"
 )
 
-# Palette proposal (cloud text — text only, no images).
+# Palette proposal (local text — text only, no images).
 PALETTE_PROMPT = (
     "Given this character description from a manga, propose a color palette "
     "as JSON keys->hex (hair, eyes, skin, outfit_primary, outfit_secondary, "
@@ -93,10 +93,7 @@ def discover_cards(
     if not entries:
         return {"proposed": 0, "note": "no captions found (run koma script first)"}
 
-    # 2. cloud-text consolidation → cast proposal
-    # glm-5.3-flash is a reasoning model: it burns thousands of tokens
-    # thinking before the JSON content leg (measured: 22k thinking tokens on
-    # 60 captions, done_reason=length). num_predict must cover BOTH legs.
+    # 2. Local text consolidation into a cast proposal.
     client = _text_client(cfg)
     captions_block = "\n\n".join(f"{pid}: {cap}" for pid, cap in entries[:sample_max])
     prompt = MENTIONS_PROMPT.format(captions=captions_block)
@@ -168,16 +165,11 @@ def discover_cards(
 
 
 def _text_client(cfg: Settings):
-    from ..clients import OllamaClient
-
-    # Discovery consolidation = one HUGE reasoning-model call (22k+ thinking
-    # tokens measured, 3-5 min wall). The default 120s client timeout dies
-    # mid-generation; give this client a long read window.
-    return OllamaClient(timeout=600.0)
+    return text_client(cfg, timeout=600.0)
 
 
 def _chat_json_headroom(client, model: str, prompt: str) -> Any:
-    """chat_json with reasoning-model headroom (glm thinks before content).
+    """chat_json with bounded local-model response headroom.
 
     Retries once with a much larger num_predict when the reply dies at
     length (thinking leg starves the JSON content leg).
