@@ -1,8 +1,7 @@
-"""CLI — koma command surface (PLAN §10). Phase 0: new/status/health/pause/resume.
+"""Current experimental koma command surface.
 
-Later phases extend this module; keep commands thin — they delegate to store
-and step modules, never implement pipeline logic inline.
-"""
+Use command help for implemented options. PLAN.md §10 specifies the target CLI;
+unified run ownership, safe controls and media delivery are still pending."""
 
 from __future__ import annotations
 
@@ -130,21 +129,21 @@ def health(
             "MISSING (required)" if required else "not found (optional, for PDF ingest)"
         )
         report(binary, found or not required, note)
-    typer.echo("gpu box: out of scope for Phase 0 (checked by koma doctor, later phase)")
+    typer.echo("gpu box: use koma doctor for the current service check")
     raise typer.Exit(0 if ok else 1) from None
 
 
 @app.command()
 def pause(
     now: bool = typer.Option(
-        False, "--now", help="Hard stop (in-flight job interrupt) — later phase."
+        False, "--now", help="Immediate interruption is not implemented; requests drain only."
     ),
     data_dir: Path = typer.Option(None, "--data-dir", hidden=True),
 ) -> None:
-    """Pause GPU work: drain in-flight job, then hold (PLAN §9)."""
+    """Pause GPU work: drain in-flight job, then hold."""
     _store(data_dir).set_paused(True)
-    extra = " (--now hard stop lands in a later phase)" if now else ""
-    typer.echo("paused: scheduler will drain the in-flight job, then hold" + extra)
+    extra = " (--now interruption is not implemented; drain requested only)" if now else ""
+    typer.echo("pause requested: scheduler will drain the in-flight job, then hold" + extra)
 
 
 @app.command()
@@ -455,11 +454,11 @@ def doctor(
         port=int(str(s.get("gpu.port", 8188))),
     )
     if not worker.is_online():
-        _fail(f"box {worker.host}:{worker.port} unreachable (machine-off ≡ paused, PLAN §9)")
+        _fail(f"box {worker.host}:{worker.port} unreachable; waiting for the local service")
 
     typer.echo(f"box {worker.host}:{worker.port}: ONLINE")
 
-    # GPU lane arbitration check (decision #026): both daemons up = violation.
+    # GPU lane arbitration check: both daemons up = violation.
     from .gpu.lanes import check_conflict
 
     lanes = check_conflict(config=s)
@@ -519,7 +518,7 @@ def doctor(
         raise typer.Exit(1)
 
 
-models_app = typer.Typer(name="models", help="Model-adapter registry UX (decision #021).")
+models_app = typer.Typer(name="models", help="Model-adapter registry UX.")
 app.add_typer(models_app)
 
 

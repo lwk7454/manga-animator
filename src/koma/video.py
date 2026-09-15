@@ -1,6 +1,4 @@
-"""video.py — ffmpeg composition (Phase 6).
+"""Planned video validation, upscale and chapter assembly.
 
-Planned: per-panel audio-lock concat into chapter videos per ratio — pad
-audio tails with silence, never pad or speed-adjust video (vidgen doctrine).
-Phase 0 ships no implementation.
-"""
+Not implemented. PLAN.md §19 requires manifest order, exact frame accounting
+and audio alignment without padding or retiming generated video."""

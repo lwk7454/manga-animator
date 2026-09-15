@@ -1,10 +1,4 @@
-"""Review — dark-theme HTML contact sheets + tiny local server (PLAN §10, Phase 1+).
+"""Local dark-theme order-review sheets and HTTP review server.
 
-Planned contents:
-- Order-review sheets: panels outlined + numbered, direction shown,
-  low-confidence pages highlighted, click-to-swap fixes; incremental per
-  batch — old batches never re-reviewed (decision #005).
-- Card-review sheets: character color sheet + voice ref playback + approve
-  gate (decision #004).
-- Static HTML + JS writing JSON back via a tiny local server (``koma review``).
-"""
+Stable panel identity, revisioned review operations and complete character/voice
+approval flows are planned in PLAN.md §§12-14."""

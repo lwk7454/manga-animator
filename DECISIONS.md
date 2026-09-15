@@ -1,65 +1,69 @@
-# DECISIONS.md — manga-animator
+# Current decisions — manga-animator
 
-Authoritative decision log (vidgen convention). Never re-litigate a settled
-entry; new decisions append. Full context & rationale: PLAN.md + docs/research/.
+Updated 15 September 2026. These are owner decisions and retained product
+requirements, not claims that features have been implemented or qualified.
+[PLAN.md](PLAN.md) defines implementation contracts, defaults and acceptance gates.
+A subsequent owner instruction takes precedence. Do not silently reopen settled
+choices; update this file and the corresponding plan when a decision changes.
 
-| # | Decision | Date |
-|---|---|---|
-| 001 | **Motion model: anime-fication.** Each colorized panel is the i2v keyframe; LLM writes the motion prompt from the panel. Not a motion-comic, not reimagined compositions. | 2026-09-08 |
-| 002 | **Audio language: JP voices + translated subtitles.** Subtitle languages configurable; priority EN + zh-HANS. No English dub by default (supported later). | 2026-09-08 |
-| 003 | **Audio stack: layered local.** GPT-SoVITS primary dialogue (MIT, 5s clone), IndexTTS-2.5 optional emotion lane, licensed moan/SFX packs, MMAudio ambience (later), per-mood soft BGM (resting gain 0.25 + sidechain duck). **ElevenLabs rejected for adult dialogue** — automated filter unpredictably blocks sexual text; suspension risk. | 2026-09-08 |
-| 004 | **Character anchoring: card review gate.** Pipeline proposes character cards (color sheet + voice ref + outfit variants); human approves once per batch; then unattended. | 2026-09-08 |
-| 005 | **Reading order: per-batch contact-sheet review.** Auto-detected (manga-ocr script distribution → direction; gutter fallback), human certifies each new page batch via dark-theme HTML sheet (click-to-swap); old batches never re-reviewed. | 2026-09-08 |
-| 006 | **Registry is living.** New characters/outfits discovered at ANY point → card-review queue → append variant. Sheets versioned; every panel records (card, variant, version); fixes list affected panels NEEDS_REGEN, never silently rewrite; targeted regen. | 2026-09-08 |
-| 007 | **Deliverable: one video per chapter, per ratio.** `koma merge` makes binge files (concat, no re-encode). No ever-growing series file. | 2026-09-08 |
-| 008 | **GPU etiquette: manual switch only.** `koma pause` = drain in-flight job then hold; `--now` = hard stop; machine-off ≡ paused. Auto-yield heuristics rejected. One ComfyUI job in flight; TTS batches while video lane drained. | 2026-09-08 |
-| 009 | **CLI: `koma`** (コマ = manga panel). Repo `~/dev/manga-animator/`. Global install = launcher + persistent uv venv, editable (vidgen pattern). | 2026-09-08 |
-| 010 | **Dual ratio: two full generations.** Both ratios get per-ratio keyframes (outpaint) + full i2v + upscale. Shared upstream paid once (colorization masters, audio, translation ≈ second ratio costs 50–70% GPU). Crop-the-video shortcuts and per-crop vision checks rejected — quality first. | 2026-09-08 |
-| 011 | **Outpaint engine: Qwen-Image-Edit (+ turbo).** Apache-2.0, 3090-fit, native JP text rendering (balloons survive). | 2026-09-08 |
-| 012 | **Video lanes: fl2va turbo default; ref2va reserved.** ref2va (`MiniMaxH3ReferenceToVideo` ≤9 imgs + ≤3 vids/auds + `AddGuide` panel-pinned at frame 0) = regen/identity-critical lane. Cheap continuity first: first+last-frame panel-chain conditioning (2.x experiment). Prev-clip-as-ref-video NOT default. | 2026-09-08 |
-| 013 | **Age-gate: mandatory, fail-closed.** Pre-generation, per page AND chapter; OR-reject across Civitai SigLIP2 anime-age (threshold tuned down) + WD-tagger v3 (loli/shota/child tags) + optional Llama-Guard-4. Model error/timeout = block. Not negotiable. | 2026-09-08 |
-| 014 | **Models are adapter specs, not code.** `config/models/*.toml` (kind, workflow, verified inject map, frame grid, setup recipe) + `koma setup <id>` + `koma doctor` live-verify. Swapping/adding models (incl. PinkCherry / Heretic encoder) = spec + setup + one config line. | 2026-09-08 |
-| 015 | **Compute split: Mac thinks, 3090 makes pixels.** Mac: vision (Qwen3-VL-8B abliterated via Ollama), manga-ocr, age-gate, LLM writing/translation (glm-5.3-flash). 3090: colorize (MangaNinja), outpaint, i2v, TTS service, upscale. | 2026-09-08 |
-| 016 | **Series data lives in-repo** at `data/` (gitignored). Single tree. | 2026-09-08 |
-| 017 | **No paid image/video generation services.** Cloud text-LLM tokens allowed (writing/translation only). | 2026-09-08 |
-| 018 | **Local vision is required** — cloud vision models refuse explicit images (no uncensored vision model on any cloud router). | 2026-09-08 |
-| 019 | **Inherit vidgen doctrine** (PLAN §2): audio-first grid sizing (17n+5 live-read from /object_info), never pad/speed video, unique per-job output prefixes AND upload names, free_vram before upscale, one encoder profile, poll-nowhere→FAILED, idempotent steps + monitor, real-binary regression tests, live node-ID verification. Local MiniMax H3 weights have NO built-in filter — "jailbreak" repos are scam reuploads; never install. | 2026-09-08 |
-| 020 | **Video models are composable profiles.** Component specs (weights, sha256, provenance) + profile specs (workflow + inject incl. unet/clip + grid). Community mods enter as components+profiles: PinkCherry = painter swap (fl2va DiT finetune, pruned-int8 flavor only, no ref2va version), Heretic = reader swap (abliterated encoder, both lanes pending probe). Hash-verified at setup, live-probed before selectable, adopted only on A/B evidence — local stock is already unfiltered; these are competence upgrades. Profile PINNED per series (never mix painters mid-series); per-chapter override for A/B only. | 2026-09-08 |
-| 021 | **Multi-model UX is a first-class feature.** One umbrella: `koma models list / install / default / pin / ab` over the adapter registry — every role (video, vision, TTS, text, colorize, outpaint) swappable with zero code. Stock = zero-config defaults; adding a model = install (hash-verify + doctor + live probe) then one switch command; `koma models ab` renders same-panel/same-seed comparisons for evidence-based adoption; per-series pins stop silent mid-series swaps. PinkCherry/Heretic ship as ready-to-install recipes (PLAN §11.2), adoption post-v1. | 2026-09-08 |
-| 022 | **Colorize lane is LIVE (MangaNinja on ComfyUI).** Worker + adapters + colorize step + scheduler + doctor proven end-to-end on the 3090: test-case line art + ref sheet → colorized PNG in 45s. Version triangle that works on py3.13/torch 2.10+cu130: transformers **4.57.x** (5.x removed CLIPFeatureExtractor), diffusers **0.32.2** (0.40 needs hf-hub≥1.0 which transformers 4.x rejects), hf-hub 0.36.2, xformers skipped (0.0.35's kernels don't match torch 2.10 — the node's `enable_xformers_memory_efficient_attention()` patched to a no-op, PyTorch SDPA handles attention). Weights live in `ComfyUI/models/MangaNinjia/` (denoising_unet, reference_unet, point_net, controlnet.pth from Johanan0528/MangaNinjia + sk_model/sk_model2 lineart annotator); base trio = DreamShaper_8_pruned (checkpoints), clip_l (openai/clip-vit-large-patch14), control_v11p_sd15_lineart.pth (controlnet). basicsr NOT installable on py3.13 (skipped, not needed). Box pitfalls already in skill: custom_nodes singular, --listen 0.0.0.0 + firewall rule, scheduled-task launch, boot-snapshot as pip ground truth. | 2026-09-08 |
-| 023 | **Age gate REMOVED (supersedes #013) — user decision.** "Remove the age gate all together, I didn't like it from the beginning. I'll manually review them anyway and won't start projects with underage content." The automated Civitai/WD scoring produced 5 false-positive page rejections on a real validated title (stylized adult art: big eyes/small faces, dark scenes confuse the classifier). New behaviour: `gate_series_chapter` defaults to a PASS-THROUGH — no scoring, certified panels advance ORDERED→GATED, audit log records "gate removed (decision #023)". `--enabled` / `enabled=True` restores the legacy fail-closed scoring opt-in (code kept, nothing deleted). Responsibility shifts to: user curates intake + reviews output manually. | 2026-09-08 || 024 | **Vision lane moved to the 3090 box (llama.cpp).** The Mac cannot run local inference (17GB RAM; llama-server 10.5GB → 9.4GB swap, 105s for trivial replies; rule: NO local models on the Mac). Qwen2.5-VL-7B-Q4_K_M + mmproj-Q8_0 served by llama.cpp b10853 (CUDA) at `C:\llama\`, persistent via scheduled task `koma-llama` (`start_llama.bat`: `--host 0.0.0.0 --port 11434 -ngl 99 -c 8192 -fa on --jinja --no-webui`), firewall rule `koma-llama-11434`. Speaks OpenAI shape → script step routes captions via `OpenAICompatClient` when config `[vision].base_url` is set; injected test clients still serve both lanes. Explicit images stay LAN-local (decision #018 intact). Measured: ~2s/caption on the 3090, grounded captions, no refusal on real explicit panels (stock Qwen2.5-VL suffices for A4; an abliterated vision model remains a possible competence upgrade via the adapter registry, decision #021). | 2026-09-08 |
-| 025 | **Vision A/B + PinkCherry smoke DONE — plumbing proven, style verdict negative for manga.** (a) Abliterated Qwen2.5-VL is the default vision model: names anatomy explicitly, catches heart-shaped pupils; stock model dodged to euphemisms. Both models read ahegao as distress → CAPTION_PROMPT now carries an explicit pleasure-framing clause (verified: 235/243 captions correctly read as arousal). (b) Cloud rate-limiting under concurrency-8 needed 429/5xx retry in _post_with_retry (failure creep 21→0 across re-runs). (c) ui2api.py converts vendor UI workflows → API prompts (Set/Get resolution, bypass pass-through, v3 dynamic-combo dotted keys, "FLOAT,INT" combo-type widgets, string link ids, spec-default backfill). (d) First live PinkCherry v1.8 render: 13s@24fps + audio in 300s on the Q5 GGUF — coherent motion, explicit, frame 0 = panel (correct anchoring), BUT style drifts manga→photoreal: PinkCherry is a photoreal finetune and is the WRONG painter for manga panels unless colorized+style-locked. Stock H3 lane remains default (decision #012); PinkCherry kept as installed recipe for photoreal titles, adoption per-title via `koma models pin`. | 2026-09-08 |
-| 026 | **GPU lane arbitration: one consumer at a time (user-spotted hole).** llama-server (-ngl 99, keep_alive 30m) held ~7-8GB permanently while ComfyUI renders peak near 23.6GB — the two persistent daemons had NO arbitration and coexisted only by sizing luck (PinkCherry render ran with llama still loaded, ~1GB headroom). Fix: the vision server is a LANE, not a resident — `koma/gpu/lanes.py` `ensure_vision_lane(on=…)` starts/stops the `koma-llama` scheduled task over SSH (taskkill /F /IM llama-server.exe; schtasks /run to start). Script step turns it ON before caption legs (fail-open); scheduler monitor turns it OFF before any ComfyUI submit; `koma doctor` flags "both GPU consumers loaded" as a VIOLATION. Matches decision #008 one-GPU-consumer etiquette. | 2026-09-08 |
-| 027 | **Fused H3 turbo adopted as video-profile candidate (MATLOWAI).** Article framing "uncensored/jailbreak" REJECTED per #019 (local H3 has no filter; label is marketing). The real value: ONE 21GB file = pruned fl2va + ref2va delta SVD-fused (r1024) + lightx2v 8-step turbo LoRA baked @1.0 + Mystic v2.0 motion LoRA @0.7 + single-pass INT8 ConvRot — serves BOTH the B3 i2v lane and the #012 regen lane from one partition, replaces the separate ref2va download (net disk delta ~1.5GB), and avoids ComfyUI's live-LoRA pristine-backup overhead (~21GB extra). User constraint: NO OFFLOAD — models must fit 24GB. Chosen encoder = qwen3vl_32b_minimax_h3_nvfp4_awq (14.61GB, already on box); the heretic int8_convrot encoder (24.55GB) would alone force offload — rejected. Sample leg 20.98+3.17 = 24.15GB fits staged. SLA sparse-attention node EXCLUDED (3rd-party pack, py3.13 risk — the 13-iteration lesson); dense attention first, SLA only as later A/B. Registered: `config/models/profiles/minimax_h3_fused_turbo.toml` + `workflows/minimax_h3_fused_i2v.json` / `_ref2va.json` (21 nodes, SLA stripped, SigmaShift rewired to UNET). Adoption gate: `koma models ab` vs stock on same panel+seed once B3 renders — A/B evidence only (#020/#021). | 2026-09-08 |
-| 028 | **Queue-time state flips removed from colorize (root-cause fix + repair).** `queue_colorize` set panels to QUEUED at queue time — but QUEUED/GENERATING/GENERATED are RENDER-lane states sitting AFTER COLORIZED in MAINLINE, so the monitor's download-time advance `queued → colorized` was a backward (illegal) transition: all 243 colorized panels stranded at `queued` with color.png on disk while the run looked unfinished. Repair: all 243 relabeled COLORIZED via update_panel (bookkeeping correction — output files verified on disk first; one straggler ch01_p035_04 polled + downloaded directly, job had completed on the box but drained before reconcile). Fix: colorize/render queueing NEVER flips panel states — panels stay SCRIPTED/KEYFRAMED until their output is downloaded; only the monitor advances states, and only forward. Corollary: the monitor's drain-before-reconcile race (queue-empty exit skips the last in-flight job) is benign now — `_advance_panel` treats stale completions as no-ops and the repair path is idempotent. | 2026-09-09 |
-| 029 | **Colorize must run at NATIVE panel aspect (user-doctrine: no distortion).** Discovered via the B2 keyframe smoke: every colorize master was a 512x512 square regardless of the panel's true aspect (0.19–6.53 range) — the manganinja profile defaulted width=height=512, so non-square panels were SQUASHED on input and the colorize model invented compositions to fit (confirmed visually: color master ≠ panel content). This invalidated both the colorize outputs as B2 inputs AND the entire keyframe diag series (Qwen-Edit "reinterpretation" was largely a response to distorted references). Fixes: (a) monitor colorize submit now computes width/height from panel.png — long side 512 (profile `long_side`), short side /16-snapped; (b) all 243 color.png must be REGENERATED (queued re-run after the fix; the square masters are unusable); (c) keyframe outpaint work PAUSED pending native-aspect masters — the pad-then-fill EditPlus recipe remains the leading B2 candidate (EmptySD3Latent + VAEEncode-as-latent confirmed broken: deterministic mosaic on this stack; EditPlus-through-encoder is the only coherent conditioning). Lesson: vision-check EVERY lane's first output against its input (caught here only because I did). | 2026-09-09 |
-| 030 | **A5 discovery implemented; canonical picks need HUMAN review before sheets render.** `koma discover` (cloud-text consolidation of the 243 captions → registry proposals; reasoning-model trap fixed: glm-5.3-flash burned 22k thinking tokens before content — chat() gained `num_predict` param + `_chat_json_headroom` escalates 8000→32000 on starvation; client timeout 600s for the multi-minute call). Result: 2 recurring characters — `heroine` (silver/white long hair, gamer girlfriend, 4 outfit variants) + `male_lead` (dark short hair, 4 variants) — both `pending` in the registry, nothing auto-approved (#004). `koma canonical` (LOCAL vision word-overlap candidate ranking → vision pick): heroine→ch01_p035_02, male_lead→ch01_p003_03. VISION-CHECK of the picks found BOTH BAD as sheet sources: p035_02 = heroine's spiral-eyed ahegao closeup (expression unusable as identity ref) + p003_03 = male lead's face obscured by heroine's head/hand. Lesson: the canonical picker optimizes "clean 3/4 face view" but ahegao closeups fool it — the canonical panel choice goes through the same human card gate as everything else; user will pick better panels from the review sheet. Also: identity-word candidate ranking works (41/165 caption hits) but male_lead over-matches (generic words) — refine at sheet time with vision verification per candidate. | 2026-09-09 |
+## Owner-confirmed requirements
 
+| ID | Decision |
+|---|---|
+| D01 | The system has never run; no accepted generated work exists. No historical-output migration is required. Preserve unknown data rather than destroying it. |
+| D02 | Imports append new pages. Unchanged reimports do nothing. Replacement/removal requires an explicit operation. |
+| D03 | Order edits preserve panel IDs. Boundary editing comes later; new crop revisions invalidate dependent outputs. |
+| D04 | Every configured ratio is required for aggregate completion. Each runs/retries independently; adding a ratio schedules only missing work. |
+| D05 | Unapproved references require an explicit preview. Production output presented as reference-consistent requires approved bindings. |
+| D06 | Reconcile uncertain submissions automatically first, then hold ambiguous attempts for review. Never blindly resubmit. |
+| D07 | One active pipeline CLI command on the orchestrating system. Stopping a conflicting owner requires user approval. Status and targeted controls remain usable. |
+| D08 | The GPU is shared. Support checkpointed pause, verified resource release and resume. Preserve completed work; unfinished inference may restart after an immediate stop. |
+| D09 | Offloading is a performance preference, not an absolute ban. Prefer GPU execution and avoid excessive LLM CPU/RAM residency. Measure on the actual machine. |
+| D10 | All generation stays local, including text, translations, image-bearing requests and previews. No cloud fallback. |
+| D11 | Remove automated Civitai/WD scoring and cloud Llama Guard. Manual input/output review remains. `gate` may remain compatibility-only. |
+| D12 | Missing required translations block completion. Retry missing substeps while preserving valid unchanged results. |
+| D13 | Commit production files, maintained docs/config and long-term feature tests. No review-specific test dump, generated artifacts or scratch reports. |
 
-## Current clarifications — 15 September 2026
+## Retained product requirements
 
-These owner-confirmed decisions supersede conflicting historical entries above
-and in PLAN.md. They record policy, not proof that every feature is implemented.
+- Python/Typer orchestration on the Mac and local GPU services on the Windows
+  RTX 3090 machine. Actual service installation/capability still needs verification.
+- Animate the manga's approved panel composition. Shared color masters preserve
+  source aspect ratio; each ratio gets full-source outpainting and independent
+  motion generation, rather than cropping a completed video.
+- Japanese dialogue first, with English and Simplified Chinese subtitles.
+  GPT-SoVITS is the first local TTS backend. Additional engines are deferred.
+- Human order review and character/variant/voice review. Registry revisions and
+  approval evidence are versioned; dependent outputs record exact bindings.
+- Measured audio determines frame-grid sizing. Never pad or change video speed
+  to conceal short renders. Audio may receive silence padding.
+- Local selected SFX/ambience/BGM assets; BGM resting gain 0.25 with speech ducking.
+- One chapter video per configured ratio; explicit optional chapter merge.
+  Stream-copy only compatible inputs; re-encoding must be explicitly selected.
+- Declarative model profiles/components, explicit pins and qualification before
+  production use. Experimental ref2va/continuity and alternate models are deferred.
+- Dark local review UI, explicit pause/resume, no automatic idle detection or
+  recurring background scheduler.
 
-- The owner states this system has never run; there is no accepted generated work
-  to migrate. Historical live-run counts and claims above are not acceptance evidence.
-- Remove automated Civitai/WD age scoring and the optional cloud Llama Guard path.
-  Keep manual review. The old gate command may remain a compatibility transition.
-- All generation stays local, including text, translations and image-bearing calls.
-  No cloud fallback. This supersedes the cloud-text allowances in #015/#017.
-- Required translations block script completion. Retry missing substeps while
-  retaining validated results for unchanged inputs.
-- Imports append; unchanged reimports do nothing. Replacement/removal is explicit.
-- Review edits order first; panel IDs remain stable. Boundary revisions invalidate
-  dependent outputs when boundary editing is introduced.
-- All configured ratios are required for aggregate completion; each can retry
-  independently and adding a ratio schedules only missing work.
-- Unapproved references are allowed only for an explicit preview; approved
-  bindings are required for output described as reference-consistent.
-- Reconcile uncertain remote submissions first; hold ambiguous attempts for review.
-- One active pipeline command. A conflicting command needs user approval to stop
-  its current owner. Status/pause/resume/stop controls remain available. GPU work
-  must support checkpointed pause/resume and resource release; ownership is not
-  implemented by merely checking service health.
-- Offloading is a performance preference, not an absolute ban. Prefer GPU execution
-  and avoid excessive LLM CPU/RAM residency; qualify performance on real hardware.
+## Implementation defaults
+
+PLAN.md §3.2 explicitly selects SQLite, one foreground owner, target delivery
+resolution/encoder/subtitle behavior and other defaults. These are design choices,
+not additional owner requirements or measured performance promises. Changes must
+preserve the owner decisions above and be recorded in the plan.
+
+## Superseded history
+
+The earlier numbered log mixed decisions with unverified run reports and obsolete
+cloud/scoring/offload requirements. Its original text is preserved in
+[Git history](https://github.com/lwk7454/manga-animator/blob/01666663326be2b0bb2ac1d15fe27021e9e7b111/DECISIONS.md).
+It is not current guidance. In particular:
+
+- Old #013/#023 scoring/opt-in instructions are replaced by D11.
+- Old #015/#017 cloud text allowances are replaced by D10.
+- Old #022/#024/#025/#028–#030 run counts, timing and installation claims are not
+  acceptance evidence; the owner's D01 clarification controls.
+- Old #026 process-name killing/fail-open handoff and #027 strict no-offload
+  guidance are replaced by D07–D09 and PLAN.md §§7–9.
+- Old #021 broad multi-model marketplace/A-B scope is deferred. v1 requires
+  explicit profiles/pins and bounded qualification, not a generic platform.

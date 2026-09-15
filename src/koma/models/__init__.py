@@ -1,4 +1,4 @@
-"""Domain models — Series, Chapter, Page, Panel, CharacterCard, Job (PLAN §6, §7).
+"""Domain models — Series, Chapter, Page, Panel, CharacterCard, Job.
 
 State on disk is the source of truth; every model is pydantic v2 and
 JSON-roundtrippable. All transitions go through :mod:`koma.models.lifecycle`.

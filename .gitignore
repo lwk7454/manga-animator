@@ -18,3 +18,11 @@ build/
 .hermes-briefs/
 # editable-install metadata (build artifact)
 src/koma.egg-info/
+
+# local tooling, credentials and validation artifacts
+.ruff_cache/
+.coverage
+htmlcov/
+.env
+.env.*
+*.egg-info/

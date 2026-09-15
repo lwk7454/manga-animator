@@ -1,7 +1,5 @@
-# MangaNinja colorize profile — the stock colorize lane (Phase 3).
-# Workflow: LoadImage(panel) + LoadImage(ref sheet) → MangaNinjiaSampler → SaveImage.
-# Headless: no MarkImageNode (UI point-marking sugar) — auto point matching.
-# Weight components are verified by koma doctor (node IDs live via /object_info).
+# Experimental MangaNinja colorization profile.
+# Approved variant binding and live qualification are pending; see PLAN.md §§14–16.
 id = "manganinja_sd15"
 kind = "colorize"
 provider = "comfyui"

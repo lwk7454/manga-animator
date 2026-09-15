@@ -1,19 +1,9 @@
-"""Keyframe step — COLORIZED panels → per-ratio keyframes (PLAN Stage B2, Phase 4).
+"""Queue ratio-specific keyframes from colorized panel masters.
 
-For each panel and each configured ratio, the colorized master is
-outpainted/reframed to the target aspect via Qwen-Image-Edit-2509 (decision
-#010/#011: reframe, don't crop rendered video; native JP text rendering keeps
-balloons alive through outpainting). Output: ``keyframe_<WxH>.png`` next to
-``color.png``; panel state → KEYFRAMED.
-
-Doctrine (decision #001): the colorized master is the appearance authority —
-the outpaint prompt is deliberately minimal ("extend this image, keep the
-art style, characters and text unchanged"); the model is told to FILL, not
-to reinvent. Lightning LoRA (8-step) keeps each panel to seconds.
-
-GPU lane arbitration (#026): the keyframe step queues through the monitor,
-which stops the vision lane before submitting.
-"""
+Current preprocessing/workflow needs correction and live visual qualification.
+PLAN.md §16 requires full-source-preserving fit/pad/mask outpainting; no existing
+output-quality or speed claim is acceptance evidence. The monitor performs the
+basic vision-service handoff before submission."""
 
 from __future__ import annotations
 
@@ -109,7 +99,7 @@ def _submit_keyframe_job(cfg_dir: Path, worker, queue: dict, job: dict) -> None:
     The color master is pre-sized to the EXACT target canvas (resize-to-fill:
     scale until both dimensions cover, then center-crop the overshoot) before
     upload — Qwen-Edit then regenerates the whole canvas at that ratio,
-    lightning-LoRA keeps it faithful to the master (decision #001).
+    workflow fidelity requires live qualification.
     """
     import random
 

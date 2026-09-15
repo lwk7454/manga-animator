@@ -1,22 +1,9 @@
-"""A4 script stage — derive the per-panel script from the ART (Phase 2).
+"""Local caption/OCR/motion/translation checkpoints for each panel.
 
-Doctrine (decision #001, vidgen refs-first): the panel is the appearance
-authority. This stage reads it — it never invents appearance. Every panel
-gets:
-  - caption      — local vision (llama.cpp on the 3090 box, decision #024), EN
-  - dialogue     — OCR text (manga-ocr) verbatim, speaker-attributed
-  - motion plan  — per ratio, short camera/action only (never re-describes art)
-  - translations — EN + zh-HANS of every dialogue line
-  - timing       — audio bed estimate (chars/second heuristic, refined Phase 5)
-  - characters   — discovered/known character IDs per panel
-
-Character discovery (decision #004): the vision model proposes NEW characters
-(name guess, appearance descriptors) and NEW outfit variants; proposals land
-in the card review gate (A5) — nothing auto-joins the registry.
-
-All model requests stay on local endpoints. Missing required translations
-leave a panel incomplete and retry only missing substeps with unchanged inputs.
-"""
+Valid partial panel results are reused with unchanged fingerprints; required
+translations block completion. Typed dialogue line IDs, approved speaker/voice
+bindings and measured audio timing remain pending under PLAN.md §§13 and 17.
+Character discovery produces proposals, not automatically approved references."""
 
 from __future__ import annotations
 

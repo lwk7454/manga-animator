@@ -1,10 +1,8 @@
-"""Colorize step — SCRIPTED panels → colorized masters (PLAN Stage B1).
+"""Queue colorization for SCRIPTED panels, or copy native-color inputs.
 
-First GPU lane. Scripted panels whose series is B&W get queued as colorize
-jobs: MangaNinja with the character sheet as the color reference
-(decision #004/#006). Color-source series skip this stage (panels seed the
-sheets). Per PLAN §9 the queue is paused-aware and one-job-at-a-time.
-"""
+Approved variant-sheet binding and durable artifact identity remain incomplete.
+The monitor applies source-aspect sizing and basic service handoff. Production
+contracts are in PLAN.md §§14-16; current jobs are still file-backed."""
 
 from __future__ import annotations
 
@@ -45,7 +43,7 @@ def queue_colorize(
     series = store.load_series(slug)
     if series.meta.is_color_source:
         # Color sources skip colorization entirely: panels seed the sheets
-        # (PLAN §7). Flip SCRIPTED panels straight to COLORIZED with
+        #. Flip SCRIPTED panels straight to COLORIZED with
         # color.png = panel.png (documented skip-forward edge).
         skipped_panels = []
         for p in store.panels_in_state(slug, PanelState.SCRIPTED):
@@ -109,7 +107,7 @@ def queue_colorize(
                 "prompt_id": None,
             })
             # NOTE: panels stay SCRIPTED until the job's output is downloaded
-            # (decision #028). QUEUED/GENERATING/GENERATED are RENDER-lane
+            #. QUEUED/GENERATING/GENERATED are RENDER-lane
             # states — using them here made download-time advance a backward
             # (illegal) transition and stranded 243 panels at `queued`.
             queued += 1

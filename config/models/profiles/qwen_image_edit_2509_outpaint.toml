@@ -1,10 +1,6 @@
-# Qwen-Image-Edit-2509 outpaint profile — the B2 keyframe lane (Phase 4).
-# Panel color masters are reframed (outpainted) to 16:9 / 9:16 keyframes.
-# Reframing-not-cropping is the locked strategy (PLAN §12, decision #010/#011);
-# Qwen-Image-Edit chosen for instruction following + native JP text rendering
-# (balloons survive outpainting). Lightning 8-step LoRA → seconds per panel.
-# VRAM (staged legs, no offload): unet 20.43 + int8 vae 3.17 ≈ 23.6GB fits;
-# text-encode leg 9.38 (fp8-scaled encoder) then offloads.
+# Experimental Qwen-Image-Edit outpaint profile.
+# Full-source preprocessing/graph repair and both-ratio probes are pending.
+# Do not infer quality, memory fit or speed from these defaults; PLAN.md §§15–16.
 id = "qwen_image_edit_2509_outpaint"
 kind = "outpaint"
 provider = "comfyui"

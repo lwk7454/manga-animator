@@ -1,9 +1,8 @@
-"""Monitor — scheduler tick: submit → poll → download → advance (PLAN §9).
+"""Scheduler tick: submit, poll, download and advance accepted stage outputs.
 
-One tick = one pass over the queue. ``koma monitor [--once]`` wraps this in a
-loop. Pause-aware: while paused, nothing is submitted (in-flight jobs still
-finish — drain semantics, decision #007). Machine-off ≡ paused.
-"""
+The loop drains its last running job and holds known-offline work. Current JSON
+persistence and artifact paths still need durable recovery and stale-result
+fencing. See PLAN.md §§6-9; this is not a complete end-to-end run orchestrator."""
 
 from __future__ import annotations
 
@@ -135,7 +134,7 @@ def _submit_job(cfg_dir: Path, worker: ComfyUIWorker, queue: dict, job: dict) ->
     if sheet_name:
         _set_path(wf, inject["ref_image"], sheet_name)
     _set_path(wf, inject["seed"], seed)
-    # Native-aspect colorize (decision #029): the render canvas follows the
+    # Native-aspect colorize: the render canvas follows the
     # PANEL's own aspect — long side 512 (or profile default), short side
     # snapped to /16 (diffusion constraint). A square canvas distorts every
     # non-square panel and the colorize model invents to match the squash.

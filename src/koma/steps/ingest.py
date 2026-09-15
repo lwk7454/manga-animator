@@ -1,26 +1,11 @@
-"""A1 ingest — import pages, detect panels, propose reading order (Phase 1).
+"""Import pages, detect panels and propose reading order.
 
-Pipeline per page:
-1. Import: JPEG/PNG copied into ``source/chNN/``; PDF rasterized via
-   pdftoppm/mutool at 300 DPI (health-check gates this).
-2. Panel detection: OpenCV heuristic adapted from Comic-Panel-Extractor
-   (ehsanx, GPLv3 — attribution kept; algorithm reference, not vendored
-   code): grayscale → invert threshold → dilate → external contours →
-   area/aspect filter → overlap NMS. DPI-independent: all thresholds scale
-   with page area/percentages, never absolute pixels.
-3. Reading order proposal: row-cluster panels by vertical overlap, then sort
-   each row by direction (RTL: right→left; LTR: left→right). Panels whose
-   assignment is ambiguous get ``order_confidence="low"`` and surface
-   highlighted on the review sheet (decision #005).
-4. Direction heuristic (AUTO series): OCR script distribution lands in
-   Phase 2 (needs manga-ocr); until then AUTO resolves via gutter-free
-   geometry + a page-level ``direction_hint`` field, and the review sheet is
-   where a wrong guess gets fixed. Series-level default is RTL (JP manga).
-
-State: pages land in pages.json with panels DETECTED →
-AWAITING_ORDER_REVIEW. Ingest is idempotent: re-import skips pages whose
-source hash is already recorded.
-"""
+Images are copied and PDFs rasterized with local binaries. Detection uses
+OpenCV threshold/dilation/contours and area/aspect filtering; it is inspired by
+Comic-Panel-Extractor (ehsanx, GPLv3), with no vendored implementation. Most
+thresholds scale with page dimensions, but the dilation kernel is fixed.
+AUTO direction currently falls back to RTL. Confidence persistence, append-safe
+reimports and explicit source replacement remain work in PLAN.md §11."""
 
 from __future__ import annotations
 
@@ -135,7 +120,7 @@ def propose_reading_order(
     staggered/fancy layouts where fixed buckets break). Rows go top→bottom;
     within a row, right→left for RTL, left→right for LTR. A row whose panel
     vertical-centers spread more than ROW_STAGGER_FRACTION of mean height is
-    flagged low-confidence for the human review sheet (decision #005).
+    flagged low-confidence for the human review sheet.
     """
     del page_height  # overlap-based clustering is page-size independent
     if not boxes:
@@ -245,7 +230,7 @@ def import_chapter(
     series = store.load_series(slug)
     direction = series.meta.direction
     if direction is ReadingDirection.AUTO:
-        direction = ReadingDirection.RTL  # resolved later by OCR heuristic (Phase 2)
+        direction = ReadingDirection.RTL  # resolved later by OCR heuristic
 
     src = Path(src).expanduser().resolve()
     if not src.exists():

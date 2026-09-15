@@ -1,15 +1,9 @@
-"""Model-adapter registry — specs, not code (PLAN §11, decision #014/#020/#021).
+"""Declarative component/profile loading and structural workflow validation.
 
-Two spec layers under ``config/models/``:
-- ``components/<id>.toml`` — one weights artifact: file, sha256, target dir,
-  provenance. Hash-verified at install (community artifacts have a scam
-  history); ``koma doctor`` re-verifies presence.
-- ``profiles/<id>.toml`` — a lane: workflow JSON + inject map + frame grid +
-  component references. Swapping a model = add TOMLs + one config line.
-
-v1 ships one real GPU profile: ``manganinja_sd15`` (colorize lane). The video
-profiles (stock H3 + PinkCherry/Heretic recipes) follow in Phase 5.
-"""
+Components describe weight files, hashes and provenance; profiles describe
+workflows, injection maps and frame grids. File verification is distinct from
+live qualification. Explicit profile-pin authority and full compilation are
+planned in PLAN.md §15. Shipped profiles remain experimental."""
 
 from __future__ import annotations
 

@@ -1,7 +1,6 @@
-"""Encode profile seam — ONE module, vidgen decision #27 pattern.
+"""Central delivery-encoder seam; execution is not implemented.
 
-Phase 6 will implement h264_videotoolbox (Mac), yuv420p, faststart here.
-Kept as a named seam so tests/imports have a stable home. No logic yet.
-"""
+PLAN.md §19 specifies the target macOS VideoToolbox path and its qualification.
+An encoder name alone does not establish an available or tested media pipeline."""
 
-ENCODER_NAME = "h264_videotoolbox"  # planned; asserted by Phase 6 real-binary tests
+ENCODER_NAME = "h264_videotoolbox"  # target only; real-encoder qualification pending

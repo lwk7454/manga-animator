@@ -1,7 +1,4 @@
-"""audio.py — layered audio mix (Phase 6, PLAN §8).
+"""Planned measured-audio timelines and layered local mixing.
 
-Planned: per-panel dialogue + moans/SFX + ambience + soft BGM (resting gain
-0.25, sidechain duck under speech — vidgen asplit filtergraph, no corrective
-post-duck boost). Panel duration = full audio bed → audio-first sizing.
-Phase 0 ships no implementation.
-"""
+Not implemented. PLAN.md §§17-18 defines sample timing, local TTS reuse, BGM
+resting gain 0.25, speech ducking and silence padding after video validation."""

@@ -1,40 +1,51 @@
 # manga-animator
 
-Manga pages → animated chapter video. `koma` is the CLI.
+Manga pages → animated chapter video. `koma` is the Python CLI.
 
-`DECISIONS.md` records the current constraints and supersedes older statements
-in `PLAN.md`. Model research lives under `docs/research/`.
+[PLAN.md](PLAN.md) is the detailed implementation handoff and acceptance contract.
+[DECISIONS.md](DECISIONS.md) records settled owner decisions.
+[Model guidance](docs/models.md) distinguishes shipped configuration from live qualification.
 
-## Status — September 2026
+## Current status
 
-Implemented: JSON series storage, ingest and order review, scripting and
-character proposals, profile loading, GPU job planning, and a polling monitor.
-These stages remain experimental. Review identity, concurrent persistence,
-retries, and per-ratio completion still need coordinated fixes before an
-unattended chapter run is dependable.
+The system has never been run end to end. There is no accepted generated work
+to migrate. Historical run counts, timings and installation claims are not
+acceptance evidence.
 
-- All generation requests stay local, including captions, motion text, translations
-  and character proposals. LLM and ComfyUI adapters reject public endpoints and
-  disable environment proxies and redirects. Use localhost or literal private LAN IPs.
-- Automated age scoring and cloud Llama Guard have been removed. `koma gate` is
-  a compatibility transition only; scripting can start directly from ORDERED panels.
-- Missing required translations leave scripts incomplete. Valid substeps are
-  checkpointed and reused on retry when source/model/prompt inputs are unchanged.
-- Keyframes default to the series' configured ratios. `--chapter` constrains
-  keyframe planning and native-color copying. Render currently requires a separate
-  invocation for each ratio; its default remains `16:9`.
-- Stock and fused video profiles have offline-tested input bindings. This does
-  not establish installed weights, live node compatibility, GPU memory fit, or
-  output quality. The outpaint workflow still needs correction and visual validation.
-- The monitor waits for its last running job, holds work when the box is known
-  offline, and requests a vision handoff only before a new submission. Failed
-  handoffs hold the pending job. There is no cross-process GPU lease yet.
-- TTS, audio mixing, subtitles, upscale/validation, and chapter assembly are
-  unfinished. Model install/default/pin/A-B commands are not implemented.
+Implemented experimental foundations: JSON series storage, panel detection and
+order review, local scripting and character proposals, declarative workflow
+profiles, GPU job planning and a polling monitor. None of this establishes a
+fully working video generator.
+
+- All generation stays local, including captions, translations and character
+  proposals. LLM/ComfyUI clients reject public endpoints and disable environment
+  proxies and redirects. Use localhost or a literal private LAN IP.
+- Automated scoring and cloud Llama Guard are removed. `gate` is a compatibility
+  transition; scripting accepts ORDERED panels directly.
+- Required translations block script completion. Valid panel checkpoints are
+  reused when their source/model/prompt inputs are unchanged. An interrupted
+  panel can repeat work performed since its last checkpoint.
+- Keyframes use the configured series ratios unless selected explicitly.
+  Render still requires a separate invocation for each ratio (default `16:9`).
+- The monitor drains its last running job and holds known-offline work. Its
+  current pause flag does not provide verified GPU release or command ownership;
+  `pause --now` is not implemented.
+
+Still pending: transactional metadata/queue, stable review identity, append-safe
+imports, independent ratio completion/retries, durable submission recovery,
+approved reference bindings, safe command takeover and resource-releasing
+pause/resume. TTS, measured mixing, subtitles, upscale, media validation, chapter
+assembly/merge and a unified `run` command are unfinished. The outpaint graph
+requires correction. Installed model compatibility, speed, memory use and output
+quality require real local probes.
+
+PLAN.md defines those targets; commands mentioned there may be future commands.
+Use `koma --help` for the current command surface. Do not run overlapping pipeline
+commands until ownership is implemented.
 
 ## Development
 
-Python 3.11+:
+Python 3.11 or newer, from the repository root:
 
 ```sh
 python -m venv .venv
@@ -44,31 +55,37 @@ python -m venv .venv
 .venv/bin/koma --help
 ```
 
-The default test suite uses synthetic data and mocked services and rejects live
-socket connections. It does not load model weights or submit GPU jobs. Live OCR
-requires the separately installed `manga-ocr` dependency; model provisioning and
-Windows custom-node dependencies are separate from the offline test environment.
+Tests are organized by feature; reusable synthetic inputs and fake local
+providers live in `tests/helpers.py`. The default suite rejects live socket
+connections and does not load weights or submit GPU jobs. Hardware qualification
+and future real-ffmpeg integration remain separate acceptance gates in PLAN.md.
 
-The September 14 follow-up adds regression coverage for monitor drain, profile
-compilation, chapter/ratio selection, canonical candidate labels, component
-verification, frame sizing, and converter cycles. Existing job/artifact data is
-not migrated by these code changes.
+`make venv install` is the alternative persistent-uv-environment installation;
+`make test`, `make lint`, `make health` and `make doctor` use that environment.
+`make clean` removes known build/test caches, preserving source and runtime data.
+The editable source checkout is currently required for bundled configuration.
 
-## Local model configuration
+## Local configuration
 
-Text uses the same local OpenAI-compatible server and model as vision by default,
-so a second LLM need not be loaded. Set `[text].api` to `openai` or `ollama` to
-match your local server, and `[text].llm` to its installed model name.
-`KOMA_TEXT_BASE_URL` and `KOMA_VISION_BASE_URL` override the endpoints;
-`KOMA_TEXT_MODEL` overrides the text model. Cloud endpoints are rejected.
-Model names and quality still require validation on your hardware. Old cloud
-API keys are not inherited by local clients. No endpoint automatically falls
-back to a cloud provider.
+`config/config.toml` contains example LAN settings; match them to your machine.
+Paths resolve relative to the repository/package root, not the current directory.
+Runtime data defaults to gitignored `data/`; secrets belong in environment variables.
 
-`script.json` checkpoints contain partial results and an input revision. Failed
-translations retry independently; blank or incomplete translation rows do not
-count as success. A chapter with unfinished panels is `script_incomplete`.
-An interrupted panel may repeat substeps completed since its last checkpoint;
-completed panel checkpoints are reusable. Cross-process command ownership and
-GPU pause/resume are still pending work. Changing inputs of already-rendered
-panels requires the future downstream invalidation implementation.
+Text defaults to the same local OpenAI-compatible server/model as vision. Set
+`[text].api` to `openai` or `ollama` for the selected local service.
+`KOMA_TEXT_BASE_URL`, `KOMA_VISION_BASE_URL` and `KOMA_TEXT_MODEL` override routing.
+Cloud keys are not inherited and no cloud fallback exists. The shipped model
+names are configuration candidates, not evidence that weights are installed.
+
+Live OCR additionally requires `manga-ocr`; GPU services, model provisioning and
+Windows custom-node dependencies are separate from the offline Python setup.
+`koma health` checks local binaries; `koma doctor --help` describes the current
+service check. Neither is the complete future qualification procedure.
+
+## Repository maintenance
+
+Commit production code, maintained configuration/docs and durable feature tests.
+Keep generated media, model weights, database files, probe logs, scraped research,
+review reports and scratch scripts outside version control. Historical research
+and superseded decisions remain available in Git history; they do not override
+the current plan or constitute live validation.

@@ -7,7 +7,7 @@ data = "data"
 config = "config"
 
 [video]
-profile_default = "minimax_h3_fl2va_turbo"   # decision #020: stock lane, zero-config
+profile_default = "minimax_h3_fl2va_turbo"   # experimental default; qualification required
 
 [text]
 # Reuse the local vision server for text to avoid loading a second model.
@@ -17,8 +17,8 @@ api = "openai"
 # base_url defaults to vision.base_url; override with KOMA_TEXT_BASE_URL.
 
 [vision]
-# llama.cpp server ON THE 3090 BOX (decision #024): OpenAI-shape /v1/chat/completions,
-# no filter, explicit art stays LAN-local. Server: C:\llama\start_llama.bat (task koma-llama).
+# Example local OpenAI-compatible vision endpoint; match your actual service.
+# Installed model identity and service control require hardware qualification.
 base_url = "http://192.168.50.103:11434"
 model = "qwen2.5-vl-7b"              # Qwen2.5-VL-7B-Q4_K_M + mmproj Q8_0, served by llama.cpp
 
@@ -28,5 +28,5 @@ port = 8188
 # boot/ssh credentials come from env only (KOMA_GPU_*), never committed.
 
 [audio]
-tts_primary = "gpt_sovits"           # decision #003
+tts_primary = "gpt_sovits"           # selected first TTS backend; not implemented
 bgm_resting_gain = 0.25

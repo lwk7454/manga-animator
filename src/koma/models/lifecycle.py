@@ -1,4 +1,4 @@
-"""Panel lifecycle — legal transitions and helpers (PLAN §6).
+"""Panel lifecycle — legal transitions and helpers.
 
 Every state transition is written to disk before any side effect (vidgen
 doctrine): the store is updated first, then the work happens. A crash between

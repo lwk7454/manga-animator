@@ -1,16 +1,8 @@
-"""A5 character discovery — proposals only, nothing auto-joins (PLAN §7, #004).
+"""Local character proposals and canonical source candidate selection.
 
-Runs AFTER A4 scripting over the already-captured captions/panels:
-1. VISION pass: sample candidate canonical panels (visually distinct, at
-   least one face/figure per character) via the local vision model — no
-   cloud sees art (#018).
-2. TEXT pass: consolidate per-panel mention lists with the local model into
-   a deduped cast proposal — each character gets identity descriptors, a
-   palette guess, a proposed canonical panel, and outfit variants.
-3. Everything lands in the registry with review_status=pending. The card
-   review gate (human) promotes to approved; only approved sheets guide
-   colorize.
-"""
+Discovery consolidates caption evidence and proposes cast/variant records.
+Canonical candidates are paired with their actual images. Complete immutable
+approvals, voice bindings and generated sheet review are pending in PLAN.md §14."""
 
 from __future__ import annotations
 

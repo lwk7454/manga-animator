@@ -1,19 +1,16 @@
-"""Frame-grid sizing — audio-first lengths snapped to the node's live grid.
+"""Frame-count ceiling and configurable frame-grid helpers.
 
-Inherited doctrine (vidgen decisions #8/#30/#38, koma decision #032):
-- clip length = its audio bed duration x fps, CEIL (never undershoot)
-- the grid (min, step) is read LIVE from ``/object_info`` — never hardcoded
-- never pad or speed-adjust video; surplus becomes audio-tail silence
-"""
+Callers may read the installed object_info schema. The fallback grid is an
+unqualified configuration assumption; production qualification must validate
+actual constraints. Measured-audio integration is planned in PLAN.md §§16-17."""
 
 from __future__ import annotations
 
 import math
 from typing import Any
 
-# Live-verified fallback (vidgen, Sep 2026): MiniMaxH3ImageToVideo length
-# widget = min 5, step 17 → the 17n+5 grid. Used only if /object_info is
-# unreachable; the live read always wins.
+# Legacy fallback assumption: min 5, step 17. Actual installed constraints
+# require qualification; this constant is not hardware evidence.
 MINIMAX_H3_GRID = (5, 17)
 
 

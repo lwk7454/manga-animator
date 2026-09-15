@@ -1,6 +1,6 @@
-# MiniMax H3 fl2va pruned-int8 turbo — the stock video lane (Phase 5 default).
-# Proven in vidgen (~70s/clip warm): ComfyUI core nodes, turbo LoRA live-loaded.
-# This is the baseline the fused candidate (decision #027) A/Bs against.
+# Stock video configuration candidate, selected as the current default.
+# Offline binding tests do not prove installed compatibility or GPU fit.
+# See PLAN.md §§15–16 for qualification.
 id = "minimax_h3_fl2va_turbo"
 kind = "video_i2v"
 provider = "comfyui"

@@ -1,11 +1,8 @@
-"""ComfyUI GPU worker — submit/poll/download/free_vram (PLAN §9, vidgen doctrine).
+"""Local ComfyUI upload, submission, polling, download and unload primitives.
 
-Doctrine inherited from vidgen (decision #032/#038/#011/#040):
-- poll-\"nowhere on server\" ⇒ FAILED (no zombie QUEUED)
-- frame grids live-read from ``/object_info`` (never hardcoded)
-- unique per-job output prefixes AND upload names
-- ``/free`` (unload_models + free_memory) between heavy phases
-"""
+Current polling marks missing queue/history entries failed. Durable uncertainty
+reconciliation, declared-output validation and safe scoped unload are pending
+under PLAN.md §§8-9 and §15. Transport helpers alone do not establish recovery."""
 
 from __future__ import annotations
 

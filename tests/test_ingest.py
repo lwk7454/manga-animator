@@ -1,9 +1,4 @@
-"""Phase 1 tests — ingest (detection + order) and review sheets.
-
-Uses synthetic manga pages drawn with PIL: white page, black-bordered
-rectangular panels with distinct fills. Ground-truth bboxes are known, so
-detection + reading order are asserted exactly.
-"""
+"""Durable feature tests; no live model services."""
 
 from __future__ import annotations
 
@@ -21,30 +16,9 @@ from koma.steps.ingest import (
     propose_reading_order,
 )
 from koma.storage.series_store import SeriesStore
+from tests.helpers import PAGE_H, PAGE_W, PANELS_GRID, draw_page
 
 runner = CliRunner()
-
-PAGE_W, PAGE_H = 1654, 2339  # A4 @ 200dpi
-
-# (x, y, w, h) grid — 6 panels, manga-style: 3 rows x varying columns.
-# Row 1: two panels (right half wide), row 2: three panels, row 3: one wide + one
-PANELS_GRID = [
-    (854, 84, 716, 656),    # top-right (read first in RTL)
-    (84, 84, 736, 656),     # top-left
-    (1224, 774, 346, 626),  # mid-right
-    (654, 774, 536, 626),   # mid-center
-    (84, 774, 536, 626),    # mid-left
-    (84, 1434, 1486, 800),  # bottom full-width
-]
-
-
-def draw_page(path: Path, boxes: list[tuple[int, int, int, int]]) -> None:
-    img = np.full((PAGE_H, PAGE_W, 3), 255, dtype=np.uint8)
-    rng = np.random.default_rng(7)
-    for (x, y, w, h) in PANELS_GRID:
-        img[y:y + h, x:x + w] = rng.integers(40, 220, size=(1, 1, 3))
-        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 0), 6)  # border
-    cv2.imwrite(str(path), img)
 
 
 @pytest.fixture()

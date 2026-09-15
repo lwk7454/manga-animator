@@ -1,4 +1,4 @@
-"""A2 order review — dark-theme HTML contact sheets (Phase 1, decision #005).
+"""A2 order review — dark-theme HTML contact sheets.
 
 Static HTML + tiny stdlib HTTP server: ``koma review <slug>`` serves
 ``data/series/<slug>/review/``; the page lists one card per new batch

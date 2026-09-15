@@ -1,0 +1,115 @@
+"""Shared synthetic inputs and local provider doubles."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import cv2
+import numpy as np
+from typer.testing import CliRunner
+
+from koma.cli import app
+from koma.config import Settings
+from koma.models.domain import BBox, Page, Panel, PanelState, ReadingDirection
+from koma.storage.series_store import SeriesStore
+
+PAGE_W, PAGE_H = 1654, 2339  # A4 @ 200dpi
+
+
+PANELS_GRID = [
+    (854, 84, 716, 656),    # top-right (read first in RTL)
+    (84, 84, 736, 656),     # top-left
+    (1224, 774, 346, 626),  # mid-right
+    (654, 774, 536, 626),   # mid-center
+    (84, 774, 536, 626),    # mid-left
+    (84, 1434, 1486, 800),  # bottom full-width
+]
+
+
+def draw_page(path: Path, boxes: list[tuple[int, int, int, int]]) -> None:
+    img = np.full((PAGE_H, PAGE_W, 3), 255, dtype=np.uint8)
+    rng = np.random.default_rng(7)
+    for (x, y, w, h) in boxes:
+        img[y:y + h, x:x + w] = rng.integers(40, 220, size=(1, 1, 3))
+        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 0), 6)  # border
+    cv2.imwrite(str(path), img)
+
+
+runner = CliRunner()
+
+
+class FakeOcr:
+    def read_region(self, page_path: Path, bbox: tuple[int, int, int, int]) -> str:
+        return "おはよう"
+
+
+class FakeClient:
+    """Records calls; returns canned replies."""
+
+    def __init__(self, fail_on: str | None = None):
+        self.calls: list[tuple[str, str]] = []
+        self.fail_on = fail_on
+
+    def chat(self, model: str, messages: list, *, images=None, temperature=0.4, **kw):
+        prompt = messages[-1]["content"]
+        self.calls.append((model, str(prompt)[:50]))
+        if self.fail_on == "vision" and images:
+            from koma.clients import LLMError
+
+            raise LLMError("vision down")
+        if self.fail_on == "motion" and "image-to-video" in prompt:
+            from koma.clients import LLMError
+
+            raise LLMError("text down")
+        if "image-to-video" in prompt:
+            return "The girl turns her head, hair swaying in the breeze."
+        return "A manga panel with two characters in a room."
+
+    def chat_json(self, model: str, messages: list, **kw):
+        self.calls.append((model, "json"))
+        prompt = str(messages[-1]["content"])
+        key = "en" if "English" in prompt else "zh-HANS"
+        return {"lines": [{"jp": "おはよう", key: "Good morning" if key == "en" else "早上好"}]}
+
+
+def _script_store(tmp_path: Path) -> tuple[SeriesStore, str]:
+    """Series with ordered panels advanced through the legacy GATED compatibility state."""
+
+    src = tmp_path / "src"
+    src.mkdir()
+    draw_page(src / "001.jpg", PANELS_GRID)
+    d = tmp_path / "data"
+    runner.invoke(app, ["new", "s", "--direction", "rtl", "--data-dir", str(d)])
+    runner.invoke(app, ["ingest", "s", str(src), "--data-dir", str(d)])
+    runner.invoke(app, ["certify", "s", "--page", "1", "--data-dir", str(d)])
+    store = SeriesStore(d)
+    # advance ORDERED → GATED (exercising the legacy compatibility state)
+    for pn in store.load_pages("s")[0].panels:
+        store.set_panel_state("s", pn.panel_id, PanelState.GATED)
+    return store, "s"
+
+
+CONFIG = Path(__file__).resolve().parents[1] / "config"
+
+
+def make_series(tmp_path, state):
+    store = SeriesStore(tmp_path / "data")
+    store.create_series("demo", ratios=["9:16"])
+    pages = []
+    for ch in (1, 100):
+        pid = f"ch{ch:02d}_p001_01"
+        pages.append(Page(chapter=ch, page_number=1, source_path="source.png", width=10,
+                          height=10, direction_resolved=ReadingDirection.RTL,
+                          panels=[Panel(panel_id=pid, order=1, state=state,
+                                        bbox=BBox(x=0, y=0, w=10, h=10))]))
+        pdir = store.chapter_dir("demo", ch) / "panels" / pid
+        pdir.mkdir(parents=True)
+        for name in ("panel.png", "keyframe_1024x576.png"):
+            (pdir / name).write_bytes(b"test")
+        (store.chapter_dir("demo", ch) / "script.json").write_text(
+            json.dumps({"panels": {pid: {"caption": "test"}}}))
+    store.save_pages("demo", pages)
+    cfg = Settings()
+    cfg._data = {"paths": {"data": str(store.data_dir), "config": str(CONFIG)}}
+    return store, cfg

@@ -1,5 +1,6 @@
-"""SeriesStore protocol seam (vidgen pattern): pipeline depends on this, not
-on the JSON implementation. Only the local implementation exists for v1."""
+"""Public seam for the current JSON SeriesStore.
+
+The SQLite replacement and transactional API contract are planned in PLAN.md §5."""
 
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ __all__ = ["SeriesStore"]
 
 
 def default_data_dir() -> Path:
-    """Package-root-relative default: <repo>/data (decision #016)."""
+    """Package-root-relative default: <repo>/data."""
     from ..config import settings
 
     return settings().resolved_data_dir()

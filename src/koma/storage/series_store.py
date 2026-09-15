@@ -1,4 +1,4 @@
-"""Series store — JSON-on-disk persistence (PLAN §6 tree, vidgen protocol).
+"""Series store — JSON-on-disk persistence.
 
 Layout::
 
@@ -7,9 +7,9 @@ Layout::
         pages.json
         registry/characters.json
         chapters/<NN>/chapter.json
-        chapters/<NN>/script.json        (written by later phases)
-        chapters/<NN>/panels/<PPPP>/...  (artifacts, later phases)
-    <data_dir>/state/queue.json, paused  (scheduler, later phases)
+        chapters/<NN>/script.json        (script checkpoints)
+        chapters/<NN>/panels/<PPPP>/...  (stage artifacts)
+    <data_dir>/state/queue.json, paused  (current scheduler)
 
 Idempotency rule (vidgen doctrine): state on disk is the source of truth.
 All writes are atomic (temp file + rename). Derived paths are computed from
@@ -215,7 +215,7 @@ class SeriesStore:
     ) -> Chapter:
         return self.update_chapter(slug, chapter, gate_passed=passed, gate_reason=reason)
 
-    # ── character registry (living, PLAN §7) ────────────────────────────────
+    # ── character registry (versioned target: PLAN.md §14) ────────────────────────────────
 
     def _registry_path(self, slug: str) -> Path:
         return self.series_dir(slug) / "registry" / REGISTRY_FILE
@@ -248,7 +248,7 @@ class SeriesStore:
                 return card
         raise KeyError(f"character {character_id!r} not in registry for {slug!r}")
 
-    # ── scheduler state flags (§9; queue lives in later phases) ─────────────
+    # ── scheduler state flags (§9; current file-backed queue) ─────────────
 
     @property
     def paused_flag(self) -> Path:
@@ -264,7 +264,7 @@ class SeriesStore:
     def is_paused(self) -> bool:
         return self.paused_flag.exists()
 
-    # ── provenance (job keys mirror PLAN §10 collision rules) ───────────────
+    # ── provenance (current job keys) ───────────────
 
     def job_key(self, slug: str, chapter: int, panel_id: str, ratio: str, ts: int) -> str:
         return f"{slug}_{chapter:02d}_{panel_id}_{ratio.replace(':', 'x')}_{ts}"

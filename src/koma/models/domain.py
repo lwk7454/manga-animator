@@ -1,4 +1,4 @@
-"""Domain entities (PLAN §6 state model, §7 registry)."""
+"""Domain entities."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 
 class ReadingDirection(enum.StrEnum):
-    """Page reading direction (decision #005)."""
+    """Page reading direction."""
 
     RTL = "rtl"  # JP manga: right-to-left, top-to-bottom
     LTR = "ltr"  # manhwa / western: left-to-right, top-to-bottom
@@ -20,7 +20,7 @@ class ReadingDirection(enum.StrEnum):
 
 
 class PanelState(enum.StrEnum):
-    """Panel lifecycle (PLAN §6). Review-gate states are part of the flow."""
+    """Panel lifecycle. Review-gate states are part of the flow."""
 
     DETECTED = "detected"
     AWAITING_ORDER_REVIEW = "awaiting_order_review"
@@ -75,12 +75,12 @@ class SeriesMeta(BaseModel):
     title: str = ""
     direction: ReadingDirection = ReadingDirection.AUTO
     language: str = "ja"  # source language
-    voice_language: str = "ja"  # decision #002: independent of subtitles
+    voice_language: str = "ja"  # independent of subtitle languages
     subtitle_languages: list[str] = Field(default_factory=lambda: ["en", "zh-HANS"])
     ratios: list[str] = Field(default_factory=lambda: ["16:9", "9:16"])
     source_type: Literal["jpeg", "pdf"] = "jpeg"
-    is_color_source: bool = False  # B&W sources get colorized (decision #004)
-    video_profile: str | None = None  # per-series pin (decision #020); None = default
+    is_color_source: bool = False  # B&W sources get colorized
+    video_profile: str | None = None  # per-series pin; None = default
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -119,14 +119,14 @@ class Page(BaseModel):
 
 
 class Panel(BaseModel):
-    """Atomic animatable unit — one crop, one lifecycle (PLAN §2, §6)."""
+    """Atomic animatable unit — one crop, one lifecycle."""
 
     panel_id: str  # canonical: panel_key(chapter, page, panel)
     bbox: BBox
     order: int | None = None  # certified reading position within chapter
     state: PanelState = PanelState.DETECTED
     character_ids: list[str] = Field(default_factory=list)  # from script stage
-    variant_ids: dict[str, str] = Field(default_factory=dict)  # char -> variant (decision #006)
+    variant_ids: dict[str, str] = Field(default_factory=dict)  # char -> variant
     card_version_used: dict[str, int] = Field(default_factory=dict)  # char -> version
     prompt_id: str | None = None  # ComfyUI prompt_id when queued
     error: str | None = None
@@ -147,12 +147,12 @@ class Chapter(BaseModel):
         "complete",
     ]
     pages: list[Page] = Field(default_factory=list)
-    gate_passed: bool | None = None  # decision #013: None = not yet run
+    gate_passed: bool | None = None  # legacy compatibility field; automated scoring is removed
     gate_reason: str | None = None
 
 
 class VoiceSpec(BaseModel):
-    """Character voice binding (PLAN §7)."""
+    """Character voice binding."""
 
     engine: str = "gpt_sovits"
     ref_clip: str  # path relative to registry/assets/
@@ -160,7 +160,7 @@ class VoiceSpec(BaseModel):
 
 
 class CharacterVariant(BaseModel):
-    """One outfit variant (decision #006: living registry, append variants)."""
+    """One outfit variant (living registry, append variants)."""
 
     id: str
     version: int = 1
@@ -170,7 +170,7 @@ class CharacterVariant(BaseModel):
 
 
 class CharacterCard(BaseModel):
-    """Registry entry — the living anchor (PLAN §7)."""
+    """Registry entry — the living anchor."""
 
     id: str
     version: int = 1
@@ -182,7 +182,7 @@ class CharacterCard(BaseModel):
 
 
 class Job(BaseModel):
-    """One queued GPU operation (PLAN §10 job keys, vidgen collision rules)."""
+    """One queued GPU operation."""
 
     job_id: str  # "<series>_<chapter>_<panel>_<ratio>_<ts>"
     panel_id: str

@@ -1,14 +1,7 @@
-# MiniMax H3 Fused Turbo (INT8 ConvRot) — single-file fl2va + ref2va profile.
-# Source: MATLOWAI/minimax-h3-fused-turbo-int8-convrot (merge of pruned Ref-Delta-Fused
-# r1024 base + lightx2v 8-step turbo @1.0 + Mystic v2.0 @0.7, INT8 ConvRot post-merge).
-# The ref2va delta is SVD-fused in, so ONE file serves both the i2v lane (B3)
-# and the identity/regen lane (decision #012) — replaces the separate ref2va
-# weight download entirely. Net disk delta vs stock: ~1.5GB.
-# SLA sparse-attention node STRIPPED (3rd-party pack, py3.13 risk) — dense
-# attention; audio slightly softer, ~40% slower than SLA claims, still 4-step.
-# VRAM (no-offload, staged): text-encode leg 14.61 (nvfp4 encoder, offloads);
-# sample leg 20.98 unet + 3.17 int8 video vae = 24.15GB of 24 — fits WITHOUT
-# live-LoRA backups (the entire point of the fused file).
+# Experimental MATLOWAI fused video candidate; not an automatic fallback.
+# Dense-attention workflow; installed model/node identity requires qualification.
+# Memory residency and performance must be measured; offload is not forbidden.
+# ref2va/continuity remains deferred. See PLAN.md §§15–16 and docs/models.md.
 id = "minimax_h3_fused_turbo"
 kind = "video_i2v"
 provider = "comfyui"

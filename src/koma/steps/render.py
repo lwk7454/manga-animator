@@ -1,15 +1,9 @@
-"""Render step — KEYFRAMED panels → i2v clips (PLAN Stage B3, Phase 5).
+"""Queue per-ratio motion clips from KEYFRAMED panels.
 
-One job per (KEYFRAMED panel, ratio): keyframe + motion prompt → clip via the
-selected video profile (stock `minimax_h3_fl2va` turbo today, fused
-`minimax_h3_fused_turbo` as the A/B candidate — decision #027). Audio-first
-sizing: clip length = audio bed duration x fps, CEIL, snapped to the node's
-live 17n+5 grid (sizing.py; never pad or speed-adjust).
-
-Doctrine (decision #001): appearance lives in the keyframe; the motion prompt
-drives ONLY motion. Clips land as ``clip_<ratio>.mp4`` next to the keyframes;
-state → QUEUED → GENERATING → GENERATED.
-"""
+The current planner uses script duration estimates and legacy pin/queue storage.
+Measured-audio sizing, independent ratio completion and durable recovery are
+pending. Stock/fused workflow bindings have offline tests, not live qualification.
+See PLAN.md §§9, 15-17 and 20."""
 
 from __future__ import annotations
 
@@ -40,7 +34,7 @@ def _config_dir(config) -> Path:
 
 
 def _video_profile(config, slug: str) -> str:
-    """Series pin (decision #021) → config default → stock."""
+    """Series pin → config default → stock."""
     try:
         pinned = store_pin(config, slug)
         if pinned:

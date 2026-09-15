@@ -1,4 +1,4 @@
-"""UI→API workflow converter (ComfyUI) — adapter-spec foundation (decision #014).
+"""UI→API workflow converter (ComfyUI) — adapter-spec foundation.
 
 Vendor/community workflows ship in UI format (nodes + links + Set/Get virtual
 wires). ComfyUI's /prompt endpoint needs API format (flat {id: {class_type,

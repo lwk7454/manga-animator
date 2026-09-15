@@ -5,7 +5,7 @@ VENV := $(HOME)/.local/share/koma-venv
 PY   := $(VENV)/bin/python
 UV   := uv
 
-.PHONY: venv install test lint health clean
+.PHONY: venv install test lint health doctor clean
 
 ## Create the persistent venv (run once)
 venv:
@@ -30,7 +30,11 @@ lint:
 health:
 	$(PY) -m koma.cli health
 
+## Current GPU service diagnostics (not full model qualification)
+doctor:
+	$(PY) -m koma.cli doctor
+
 ## Remove build artifacts (venv is persistent, keep it)
 clean:
-	rm -rf src/*.egg-info build dist
-	find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+	rm -rf src/*.egg-info build dist .pytest_cache .ruff_cache htmlcov .coverage
+	find src tests -name __pycache__ -type d -prune -exec rm -rf {} +

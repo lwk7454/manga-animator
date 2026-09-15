@@ -1,10 +1,8 @@
-"""Queue — global GPU job queue + pause switch (PLAN §9).
+"""Experimental file-backed job queue and pause flag.
 
-State: ``data/state/queue.json`` — one job in flight at a time (the box is
-shared/desktop). Pause semantics (decision #007): ``pause`` = drain the
-in-flight job then hold; machine-off ≡ paused. Lost-in-crash jobs ⇒ FAILED
-(vidgen #32) at reconcile time.
-"""
+Whole-file JSON updates do not provide transactional claims or cross-process
+ownership. PLAN.md §§5-9 defines the required replacement. A missing remote
+history entry must not be assumed safe to resubmit in the future recovery path."""
 
 from __future__ import annotations
 

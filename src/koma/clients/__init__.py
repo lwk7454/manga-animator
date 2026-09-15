@@ -1,10 +1,8 @@
-"""Clients — LLM / OCR / TTS / remote-run adapters (decisions #014/#015/#018).
+"""Local Ollama/OpenAI-compatible LLM clients and optional manga OCR.
 
-Secrets from env only (KOMA_*). No client hardcodes credentials or endpoints
-beyond public defaults. Phase 2 ships: OllamaClient (text+vision), the
-OpenAI-compatible fallback, and MangaOcrClient. TTSClient and SSHRunner land
-with the GPU phases.
-"""
+Generation endpoints reject public hosts and disable proxies/redirects. Local
+credentials are explicit. TTS is not implemented here; its adapter is planned
+in PLAN.md §17. Transport/checkpoint improvements are tracked in P06."""
 
 from __future__ import annotations
 

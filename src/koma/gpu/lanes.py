@@ -1,24 +1,11 @@
-"""GPU lane arbitration — one GPU consumer at a time (decision #026).
+"""Basic vision-service handoff for the configured Windows GPU box.
 
-The 3090 is a single shared 24GB resource with TWO resident daemons:
-
-  - ComfyUI   (:8188) — pixel lanes (colorize, outpaint, i2v, upscale)
-  - llama.cpp (:11434) — vision lane (captions, speaker ID, palette proposals)
-
-They NEVER legitimately overlap in the pipeline (vision is Stage A, pixels
-are Stage B), but both are persistent scheduled tasks, so without arbitration
-each behaves as if it owns the GPU. llama-server with -ngl 99 holds ~7-8GB
-permanently (keep_alive 30m); a heavy ComfyUI render peaks near 23.6GB —
-the two together silently OOM or force slow shared-memory fallback.
-
-Design: llama-server is a LANE, not a resident. `ensure_vision_lane(on=…)`
-starts/stops the `koma-llama` scheduled task over SSH, and every lane
-consumer calls it before work. `koma doctor` verifies the invariant:
-"both GPU consumers loaded" = violation.
-
-SSH access uses KOMA_GPU_* env credentials (never committed), same as the
-worker's other box operations.
-"""
+The current implementation uses SSH and a configured vision endpoint with a
+legacy scheduled-task/process-name control path. It does not establish command
+ownership or measured GPU residency, and must not be treated as safe arbitration
+with unrelated applications. Replace that path with scoped service identity and
+verified release under PLAN.md §§7-8. No historical timings or VRAM estimates
+constitute hardware qualification."""
 
 from __future__ import annotations
 
@@ -133,7 +120,7 @@ def _wait_health(host: str, want: bool, attempts: int = 12, delay: float = 5.0) 
 
 
 def check_conflict(host: str | None = None, config: Any = None) -> dict[str, Any]:
-    """Doctor check: are BOTH GPU consumers alive at once? (decision #026)"""
+    """Doctor check: are BOTH GPU consumers alive at once?"""
     host = host or _vision_host(config)
     llama = llama_running(host)
     comfy = False

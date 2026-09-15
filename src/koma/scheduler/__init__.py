@@ -1,11 +1,5 @@
-"""Scheduler — queue, pause switch, monitor loop (PLAN §9, Phase 3+).
+"""Experimental JSON queue, pause flag and polling monitor.
 
-Planned contents:
-- ``queue.json`` under ``data/state/`` — one job in flight at a time.
-- Pause semantics: ``koma pause`` drains the in-flight job then holds;
-  ``--now`` hard-stops; machine-off ≡ paused (probe fails ⇒ hold).
-- ``koma monitor [--once]`` — submit/poll/download/advance/assemble tick;
-  survives Mac and box reboots; lost-in-crash jobs ⇒ FAILED ⇒ re-queueable.
-
-Phase 0 ships no implementations (pause flag + status surfacing only).
-"""
+Pause currently requests drain/hold; immediate cancellation, command ownership
+and resource-releasing resume remain pending. PLAN.md §§5-9 defines the
+transactional work/attempt replacement and recovery contracts."""
