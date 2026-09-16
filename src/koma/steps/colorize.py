@@ -37,7 +37,7 @@ def queue_colorize(
     from ..scheduler.queue import load_queue, save_queue
 
     sdir = store.data_dir
-    profile_id = "manganinja_sd15"
+    profile_id = "qwen_image_edit_2509_colorize"
     registry.resolve_profile(_config_dir(config), profile_id)  # validates spec exists
 
     series = store.load_series(slug)
@@ -150,7 +150,7 @@ def reconcile_colorize(
 
     sdir = store.data_dir
     queue = load_queue(sdir)
-    profile_id = "manganinja_sd15"
+    profile_id = "qwen_image_edit_2509_colorize"
     registry.resolve_profile(_config_dir(config), profile_id)  # validates spec exists
 
     downloaded = failed = 0

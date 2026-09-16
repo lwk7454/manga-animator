@@ -131,28 +131,32 @@ def _submit_job(cfg_dir: Path, worker: ComfyUIWorker, queue: dict, job: dict) ->
     seed = random.randint(0, 2**31 - 1)
 
     _set_path(wf, inject["lineart"], panel_name)
-    if sheet_name:
+    if sheet_name and "ref_image" in inject:
         _set_path(wf, inject["ref_image"], sheet_name)
     _set_path(wf, inject["seed"], seed)
-    # Native-aspect colorize: the render canvas follows the
-    # PANEL's own aspect — long side 512 (or profile default), short side
-    # snapped to /16 (diffusion constraint). A square canvas distorts every
-    # non-square panel and the colorize model invents to match the squash.
+    # Canvas policy per profile: Qwen-Edit colorize runs SQUARE 512x512
+    # (verified live Sep 16 — wide native aspect produces garbage; the model
+    # letterboxes internally via the EditPlus reference conditioning). Profiles
+    # that declare long_side (legacy manganinja path) keep native aspect.
     import cv2
 
     _png = cv2.imread(str(job["panel_png"]))
     _h, _w = (_png.shape[0], _png.shape[1]) if _png is not None else (512, 512)
-    _long = int(defaults.get("long_side", 512))
-    if _w >= _h:
-        _rw = _long
-        _rh = max(16, round(_long * _h / _w / 16) * 16)
+    if defaults.get("canvas") == "square_512" or "long_side" not in defaults:
+        _rw = _rh = int(defaults.get("square", 512))
     else:
-        _rh = _long
-        _rw = max(16, round(_long * _w / _h / 16) * 16)
+        _long = int(defaults.get("long_side", 512))
+        if _w >= _h:
+            _rw = _long
+            _rh = max(16, round(_long * _h / _w / 16) * 16)
+        else:
+            _rh = _long
+            _rw = max(16, round(_long * _w / _h / 16) * 16)
     _set_path(wf, inject["width"], _rw)
     _set_path(wf, inject["height"], _rh)
-    _set_path(wf, inject["steps"], defaults.get("steps", 25))
-    _set_path(wf, inject["is_lineart"], defaults.get("is_lineart", True))
+    _set_path(wf, inject["steps"], defaults.get("steps", 8))
+    if "is_lineart" in inject:
+        _set_path(wf, inject["is_lineart"], defaults.get("is_lineart", True))
     prefix = f"koma_{job['kind']}_{uuid.uuid4().hex[:8]}"
     _set_path(wf, inject["output"], prefix)
 
