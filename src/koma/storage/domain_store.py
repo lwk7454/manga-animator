@@ -618,10 +618,11 @@ class KomaStore:
                 raise NotFound(f"panel {panel_id!r}")
             latest = self._one(
                 conn,
-                "SELECT MAX(binding_revision) AS m FROM panel_bindings WHERE panel_id = ?",
+                "SELECT COALESCE(MAX(binding_revision), 0) AS max_rev"
+                " FROM panel_bindings WHERE panel_id = ?",
                 (panel_id,),
             )
-            new_rev = int(latest["max"] if latest and latest["max"] is not None else 0) + 1
+            new_rev = int(latest["max_rev"] if latest else 0) + 1
             for b in bindings:
                 for key, _table in (
                     ("character", "registry_revisions"),
