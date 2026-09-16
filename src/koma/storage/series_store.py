@@ -248,6 +248,76 @@ class SeriesStore:
                 return card
         raise KeyError(f"character {character_id!r} not in registry for {slug!r}")
 
+    # ── order review (§12 contract on the interim JSON store) ────────────────
+    #
+    # Full desired permutation + expected revision + idempotent operation id.
+    # Panel identity is NEVER rewritten (D03): sorting updates reading order
+    # only. P04+ moves this onto the SQLite store; the behavior contract is
+    # identical so tests carry over unchanged.
+
+    def page_order_revision(self, slug: str, chapter: int, page_number: int) -> int:
+        return int(self.load_order_meta(slug, chapter, page_number).get("revision", 0))
+
+    def order_meta_path(self, slug: str, chapter: int, page_number: int) -> Path:
+        return (
+            self.chapter_dir(slug, chapter) / "order_meta" / f"{page_number:03d}.json"
+        )
+
+    def load_order_meta(self, slug: str, chapter: int, page_number: int) -> dict:
+        path = self.order_meta_path(slug, chapter, page_number)
+        if not path.exists():
+            return {"revision": 0, "operations": {}}
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def set_page_order(
+        self,
+        slug: str,
+        page_id: str,
+        expected_revision: int,
+        desired_panel_ids: list[str],
+        operation_id: str,
+    ) -> dict:
+        """Full desired permutation with CAS + operation idempotency (§12).
+
+        ``page_id`` here is the chapter-scoped page identity of the interim
+        JSON store: ``"ch<NN>/p<NNN>"`` (also accepted: ``page_id`` equal to
+        the page's source_path). Panel identity is never rewritten.
+        """
+        pages = self.load_pages(slug)
+        page = next(
+            (p for p in pages if p.source_path == page_id or str(p.page_number) == page_id),
+            None,
+        )
+        if page is None:
+            raise KeyError(f"page {page_id!r} not found")
+        meta = self.load_order_meta(slug, page.chapter, page.page_number)
+        if operation_id in meta.get("operations", {}):
+            prior = meta["operations"][operation_id]
+            return {"operation_id": operation_id, "idempotent": True, **prior}
+        current_rev = int(meta.get("revision", 0))
+        if current_rev != expected_revision:
+            from ..storage.errors import RevisionConflict
+
+            raise RevisionConflict(
+                f"page order revision {expected_revision} != current {current_rev}"
+            )
+        active = {pn.panel_id for pn in page.panels}
+        if sorted(active) != sorted(desired_panel_ids) or len(set(desired_panel_ids)) != len(
+            desired_panel_ids
+        ):
+            raise ValueError("desired order must contain every active panel id exactly once")
+        position = {pid: i for i, pid in enumerate(desired_panel_ids, start=1)}
+        for pn in page.panels:
+            pn.order = position[pn.panel_id]
+        self.save_pages(slug, pages)
+        meta["revision"] = current_rev + 1
+        meta.setdefault("operations", {})[operation_id] = {
+            "order_review_revision": current_rev + 1
+        }
+        _atomic_write_json(self.order_meta_path(slug, page.chapter, page.page_number), meta)
+        return {"operation_id": operation_id, "order_review_revision": current_rev + 1,
+                "idempotent": False}
+
     # ── scheduler state flags (§9; current file-backed queue) ─────────────
 
     @property

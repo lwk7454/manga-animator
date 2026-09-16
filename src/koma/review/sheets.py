@@ -1,27 +1,31 @@
-"""A2 order review — dark-theme HTML contact sheets.
+"""A2 order review — dark-theme HTML contact sheets (revisioned, D03-safe).
 
-Static HTML + tiny stdlib HTTP server: ``koma review <slug>`` serves
-``data/series/<slug>/review/``; the page lists one card per new batch
-(pages whose panels are AWAITING_ORDER_REVIEW), each panel outlined +
-numbered on the page image, direction shown, low-confidence pages
-highlighted, click-to-swap fixes two panel ids. POSTing a certification
-flips panels AWAITING_ORDER_REVIEW → ORDERED (store-enforced) and batches
-never re-appear once certified.
+Static HTML + stdlib HTTP server: ``koma review <slug>`` serves
+``data/series/<slug>/review/``; the page lists one card per batch awaiting
+review, each panel outlined + numbered on the page image, direction shown,
+low-confidence pages highlighted, click-to-swap fixes reading order.
 
-Old batches are never re-reviewed; the sheet is generated per batch at
-review time from current state.
+POSTing a certification submits the FULL desired panel order (§12: never
+just the last swapped pair) with the page's expected order-review revision
+and an idempotent operation id. Panel IDs are IMMUTABLE — sorting changes
+reading_order only, never identity (D03/B07). Batches never re-appear once
+certified; the sheet is regenerated from current state.
+
+Loopback-only server with a per-session token check: state-changing POSTs
+must carry the token issued at server start (§12 operational integrity).
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import secrets
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from ..models.domain import Page, PanelState, panel_key
+from ..models.domain import Page, PanelState
 from ..storage.series_store import SeriesStore
 
 _REVIEW_HTML = """<!doctype html>
@@ -35,7 +39,7 @@ _REVIEW_HTML = """<!doctype html>
            font-size:14px; cursor:pointer; user-select:none; }
   .panel span { background:#141414cc; padding:0 4px; }
   .low .panel { border-color:#ffb300; color:#ffb300; }
-  .low h3::after { content:" ⚠ low confidence"; color:#ffb300; font-size:.8rem; }
+  .low h2::after { content:" ⚠ low confidence"; color:#ffb300; font-size:.8rem; }
   .done { color:#4caf50; margin-top:.5rem; display:none; }
   .dir { color:#888; font-size:.85rem; }
   button { background:#2d5b8e; color:white; border:0; padding:.5rem 1rem;
@@ -65,10 +69,13 @@ document.querySelectorAll('.panel').forEach(el => {
   });
 });
 function certify(page) {
-  const swapPairs = (swaps[page] || []).length === 2 ? [swaps[page]] : [];
+  // FULL desired order derived from the CURRENT DOM state (§12), not indices.
+  const panels = [...document.querySelectorAll(`.panel[data-page="${page}"]`)];
+  const order = panels.sort((x, y) => +x.dataset.order - +y.dataset.order)
+                      .map(p => p.dataset.pid);
   fetch('/certify', { method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ slug:{{slug_json}}, page: page, swaps: swapPairs }) })
+    body: JSON.stringify({ token:{{token_json}}, page: page, panel_ids: order }) })
     .then(r => r.json()).then(d => {
       const el = document.getElementById('done-' + page);
       const show = (ok, msg) => { el.style.display = 'inline'; if (!ok) el.style.color = '#f66';
@@ -81,15 +88,17 @@ function certify(page) {
 
 def _panel_html(page: Page, b64: str, low: set[int]) -> str:
     panels = []
-    for i, p in enumerate(page.panels):
+    ordered = sorted(enumerate(page.panels), key=lambda t: t[1].order or 0)
+    for display_pos, (idx, p) in enumerate(ordered, start=1):
         b = p.bbox
         style = (
             f"left:{b.x / page.width * 100:.2f}%;top:{b.y / page.height * 100:.2f}%;"
             f"width:{b.w / page.width * 100:.2f}%;height:{b.h / page.height * 100:.2f}%;"
         )
         panels.append(
-            f'<div class="panel" data-page="{page.page_number}" data-idx="{i}" '
-            f'data-order="{p.order}" style="{style}"><span>{p.order}</span></div>'
+            f'<div class="panel" data-page="{page.page_number}" data-idx="{idx}" '
+            f'data-pid="{p.panel_id}" data-order="{display_pos}" '
+            f'style="{style}"><span>{display_pos}</span></div>'
         )
     lowcls = "low" if low else ""
     return (
@@ -100,7 +109,9 @@ def _panel_html(page: Page, b64: str, low: set[int]) -> str:
     )
 
 
-def generate_review_page(store: SeriesStore, slug: str, out_path: Path) -> int:
+def generate_review_page(
+    store: SeriesStore, slug: str, out_path: Path, token: str | None = None
+) -> int:
     """Render the current review sheet; returns number of pages awaiting review."""
     import cv2
 
@@ -132,6 +143,7 @@ def generate_review_page(store: SeriesStore, slug: str, out_path: Path) -> int:
     html = (
         _REVIEW_HTML.replace("{{slug}}", slug)
         .replace("{{slug_json}}", json.dumps(slug))
+        .replace("{{token_json}}", json.dumps(token or ""))
         .replace("{{direction}}", meta.direction.value)
         .replace("{{direction_label}}", direction_label)
         .replace("{{pages_html}}", pages_html)
@@ -144,10 +156,16 @@ def generate_review_page(store: SeriesStore, slug: str, out_path: Path) -> int:
 def serve_review(
     store: SeriesStore, slug: str, port: int = 8618, open_browser: bool = True
 ) -> None:
-    """Serve the review sheet + /certify endpoint until Ctrl-C."""
+    """Serve the review sheet + /certify endpoint until Ctrl-C.
+
+    Loopback-only bind + per-session token: every state-changing POST must
+    present the token rendered into the page (unrelated pages cannot issue
+    certified orders by accident — §12).
+    """
     review_dir = store.series_dir(slug) / "review"
     sheet = review_dir / "order_review.html"
-    n = generate_review_page(store, slug, sheet)
+    token = secrets.token_urlsafe(16)
+    n = generate_review_page(store, slug, sheet, token=token)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
@@ -167,13 +185,19 @@ def serve_review(
                 return
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
-            try:
-                certify_page(store, slug, int(body["page"]), body.get("swaps") or [])
-                payload = {"ok": True}
-            except Exception as e:
-                payload = {"ok": False, "error": str(e)}
-            data = json.dumps(payload).encode()
-            self.send_response(200)
+            if body.get("token") != token:
+                data = json.dumps({"ok": False, "error": "invalid review session token"}).encode()
+                self.send_response(403)
+            else:
+                try:
+                    _certify_by_ids(
+                        store, slug, int(body["page"]), list(body.get("panel_ids") or [])
+                    )
+                    payload = {"ok": True}
+                except Exception as e:
+                    payload = {"ok": False, "error": str(e)}
+                data = json.dumps(payload).encode()
+                self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
@@ -193,31 +217,52 @@ def serve_review(
         print("\nreview server stopped")
 
 
-def certify_page(store: SeriesStore, slug: str, page_number: int, swaps: list[list[int]]) -> None:
-    """Apply click-to-swap fixes, then flip the page's panels to ORDERED.
+def _certify_by_ids(
+    store: SeriesStore, slug: str, page_number: int, desired_panel_ids: list[str]
+) -> dict:
+    """Submit the FULL desired permutation through the transactional store (§12).
 
-    Order of operations matters (idempotency doctrine): write the swapped
-    orders ONCE, re-derive panel_ids from final positions, then transition
-    each panel via set_panel_state (which re-loads fresh state — a stale
-    in-memory copy must never be saved over transitions).
+    Panel identity never changes (D03): the store updates reading_order only.
+    On success every panel transitions AWAITING_ORDER_REVIEW → ORDERED.
+    ``page_id`` for the interim store is the chapter-scoped source_path.
+    """
+    pages = store.load_pages(slug)
+    page = next((p for p in pages if p.page_number == page_number), None)
+    if page is None:
+        raise ValueError(f"page {page_number} not found")
+    expected_rev = store.page_order_revision(slug, page.chapter, page_number)
+    op = (
+        f"order:{slug}:{page.chapter}:{page_number}:{expected_rev}:"
+        f"{hash(tuple(desired_panel_ids)) & 0xFFFFFFFF:x}"
+    )
+    result = store.set_page_order(
+        slug, page.source_path, expected_rev, desired_panel_ids, op
+    )
+    if not result.get("idempotent"):
+        for pn in sorted(page.panels, key=lambda p: p.order or 0):
+            store.set_panel_state(slug, pn.panel_id, PanelState.ORDERED)
+    return result
+
+
+def certify_page(store: SeriesStore, slug: str, page_number: int, swaps: list[list[int]]) -> None:
+    """Headless certification: apply index swaps, then submit the full order.
+
+    Kept for the CLI ``koma certify`` path. The swaps are applied in memory
+    to DERIVE the desired permutation; the persisted change is a full-order
+    submission through the transactional store (idempotent operation key).
+    Panel IDs are never rewritten (D03/B07).
     """
     pages = store.load_pages(slug)
     page = next((p for p in pages if p.page_number == page_number), None)
     if page is None:
         raise ValueError(f"page {page_number} not found")
 
+    view = list(page.panels)  # index → panel, in stored (display) order
     for a, b in swaps:
-        if not (0 <= a < len(page.panels) and 0 <= b < len(page.panels)):
-            raise ValueError(f"swap {a},{b} out of range (page has {len(page.panels)} panels)")
-        page.panels[a].order, page.panels[b].order = page.panels[b].order, page.panels[a].order
+        if not (0 <= a < len(view) and 0 <= b < len(view)):
+            raise ValueError(f"swap {a},{b} out of range (page has {len(view)} panels)")
+        view[a].order, view[b].order = view[b].order, view[a].order
 
-    # re-derive ids from final reading positions (ids encode position)
-    page.panels.sort(key=lambda pn: pn.order or 0)
-    for i, pn in enumerate(page.panels, start=1):
-        pn.order = i
-        pn.panel_id = panel_key(page.chapter, page.page_number, i)
-
-    store.save_pages(slug, pages)  # swapped orders persisted
-
-    for pn in page.panels:  # transitions re-load fresh state from disk
-        store.set_panel_state(slug, pn.panel_id, PanelState.ORDERED)
+    ordered = sorted(view, key=lambda pn: pn.order if pn.order is not None else 1 << 30)
+    desired = [pn.panel_id for pn in ordered]
+    _certify_by_ids(store, slug, page_number, desired)

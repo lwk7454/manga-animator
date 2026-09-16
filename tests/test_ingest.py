@@ -133,8 +133,9 @@ class TestIngestCLI:
         store = SeriesStore(d)
         page = store.load_pages("c1")[0]
         assert all(pn.state is PanelState.ORDERED for pn in page.panels)
-        # after swap, first panel is the top-LEFT one
-        assert page.panels[0].bbox.x < PAGE_W / 2
+        # after swap, reading position 1 is the top-LEFT one; identity preserved
+        first = next(pn for pn in page.panels if pn.order == 1)
+        assert first.bbox.x < PAGE_W / 2
 
     def test_status_shows_awaiting_counts(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
