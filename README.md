@@ -12,32 +12,28 @@ The system has never been run end to end. There is no accepted generated work
 to migrate. Historical run counts, timings and installation claims are not
 acceptance evidence.
 
-Implemented experimental foundations: JSON series storage, panel detection and
-order review, local scripting and character proposals, declarative workflow
-profiles, GPU job planning and a polling monitor. None of this establishes a
-fully working video generator.
+**Implemented (16 Sep 2026, offline-tested at `ef01272`; 275 tests + lint):**
+transactional SQLite store with work/attempt lifecycle and crash recovery
+(P01), host-wide command ownership with takeover approval (P02), revisioned
+order review preserving panel identity (P03), immutable artifacts with
+staging→hash→rename→promotion and orphan recovery (P04), managed resource
+lanes with verified pause/release (P05), typed script substeps with
+line-level checkpoints and D12 translation completeness (P06), registry
+lifecycle with non-circular sheet approval chains (P07), profile pins +
+verification-vs-qualification gates (P08), full-source fit/pad/mask and
+exact frame plans (P09 offline), TTS seam + sample-exact timelines (P10),
+real ffmpeg mixer with BGM resting gain and ducking (P11), ffprobe
+validation + encoder policy + exact assembly manifests (P12 offline).
 
-- All generation stays local, including captions, translations and character
-  proposals. LLM/ComfyUI clients reject public endpoints and disable environment
-  proxies and redirects. Use localhost or a literal private LAN IP.
-- Automated scoring and cloud Llama Guard are removed. `gate` is a compatibility
-  transition; scripting accepts ORDERED panels directly.
-- Required translations block script completion. Valid panel checkpoints are
-  reused when their source/model/prompt inputs are unchanged. An interrupted
-  panel can repeat work performed since its last checkpoint.
-- Keyframes use the configured series ratios unless selected explicitly.
-  Render still requires a separate invocation for each ratio (default `16:9`).
-- The monitor drains its last running job and holds known-offline work. Its
-  current pause flag does not provide verified GPU release or command ownership;
-  `pause --now` is not implemented.
+**Not yet implemented:** unified `run` command over the new machinery (P13),
+release cleanup (P14), subtitle artifacts (§18.2), upscale seam wiring.
+**Not qualified (hardware-gated, §24):** every live model/service/encoder
+path — the 3090 box is reserved by the owner; qualification records exist
+and await real probe evidence.
 
-Still pending: transactional metadata/queue, stable review identity, append-safe
-imports, independent ratio completion/retries, durable submission recovery,
-approved reference bindings, safe command takeover and resource-releasing
-pause/resume. TTS, measured mixing, subtitles, upscale, media validation, chapter
-assembly/merge and a unified `run` command are unfinished. The outpaint graph
-requires correction. Installed model compatibility, speed, memory use and output
-quality require real local probes.
+Still true from earlier iterations: local-only endpoints (no cloud, no
+proxies), automated scoring removed, translations block completion, monitor
+drains its last running job, `pause --now` is not implemented.
 
 PLAN.md defines those targets; commands mentioned there may be future commands.
 Use `koma --help` for the current command surface. Do not run overlapping pipeline

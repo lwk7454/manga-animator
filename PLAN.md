@@ -5,6 +5,21 @@
 **Verified baseline:** [`01666663326be2b0bb2ac1d15fe27021e9e7b111`](https://github.com/lwk7454/manga-animator/tree/01666663326be2b0bb2ac1d15fe27021e9e7b111)
 **Status:** Maintained repository implementation plan. Design contracts describe the target, not completed features. The documentation/test cleanup has landed; P01–P14 remain implementation/qualification work.
 
+**Implementation progress (updated 16 September 2026, local in-session agent):**
+P00–P08 and the offline halves of P09–P12 are IMPLEMENTED with durable
+feature tests (275 offline tests + ruff green at `ef01272`). Specifically:
+P01 transactional SQLite store, P02 command ownership, P03 revisioned order
+review (D03 violation fixed), P04 artifact promotion + orphan recovery,
+P05 resource lanes + honest pause/release, P06 typed script substeps,
+P07 registry/sheet chains/exact-reference bindings, P08 pins + verification-
+vs-qualification gates, P09 fit/pad/mask + exact frame plans, P10 TTS seam +
+sample-exact timelines, P11 real ffmpeg mixer (BGM 0.25, asplit ducking fix),
+P12 ffprobe validation + encoder policy + exact assembly manifests.
+Remaining: P13 (unified `run` over the new machinery), P14 (release), and
+ALL hardware qualification (§§24–25) — the 3090 is reserved by the owner;
+no live probe has run. Records to land evidence now exist (P08 qualification
+table, P04 artifact store, P05 release observations).
+
 **Purpose:** Give another implementation agent a sufficiently explicit plan to finish the generator without silently changing the owner's decisions. This is a design handoff, not an implementation or hardware-validation result.
 
 ## 0. Instructions to the implementing agent
