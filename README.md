@@ -11,7 +11,10 @@ Manga pages → animated chapter video. `koma` is the Python CLI.
 The owner has replaced the colorize/keyframe pipeline with direct panel-to-video
 R2V. Start with the [local R2V test workflows](docs/r2v-workflow.md): a four-step
 turbo graph and a twenty-step control, with importable ComfyUI UI/API files.
-They are structurally tested, not hardware-qualified. The existing `render` CLI
+Run them without the browser using `python -m koma.r2v_probe run --help`; the
+[agent instructions](docs/r2v-workflow.md#programmatic-workflow-for-an-agent-recommended)
+cover preflight, submission, resume and evidence capture. They are structurally
+tested, not hardware-qualified. The existing `render` CLI
 still uses the old I2V/keyframe path; integration awaits a successful output test.
 
 ## Earlier implementation status
