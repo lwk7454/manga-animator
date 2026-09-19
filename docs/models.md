@@ -1,5 +1,10 @@
 # Model configuration and qualification
 
+**Current direction (19 September):** direct-panel R2V. The [R2V test guide](r2v-workflow.md)
+contains importable stock ref2va/turbo candidates. Colorize/outpaint profiles below
+are legacy paths, not prerequisites of the new workflow. Existing application
+render integration remains I2V-only until the R2V output test succeeds.
+
 The shipped profiles are experimental configuration, not proof of installed
 weights, compatible nodes, memory fit, speed or output quality. Follow
 [PLAN.md §§15–19 and §24](../PLAN.md) for the implementation and probe contracts.

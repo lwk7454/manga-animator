@@ -1,5 +1,7 @@
 # Koma v1 — implementation handoff and acceptance contract
 
+> **Direction update — 19 September 2026:** The owner now requires direct manga-panel R2V, without colorization or generated/outpainted keyframes. This supersedes all color-master/keyframe prerequisites and corresponding P09 work below. Preserve the other storage, approval, audio and recovery contracts. The owner reports actual video tests with poor quality; the earlier no-run baseline is historical, so do not discard current runtime work. Start with [the standalone R2V test guide](docs/r2v-workflow.md). The new graphs await hardware/output validation; the existing application render CLI still requires I2V keyframes. Integrate direct panel artifacts into a distinct R2V role after the output test, without falsely advancing panels to KEYFRAMED. The remaining detailed sections describe the earlier implementation plan where they conflict with this update.
+
 **Prepared:** 15 September 2026
 **Repository:** [lwk7454/manga-animator](https://github.com/lwk7454/manga-animator)
 **Verified baseline:** [`01666663326be2b0bb2ac1d15fe27021e9e7b111`](https://github.com/lwk7454/manga-animator/tree/01666663326be2b0bb2ac1d15fe27021e9e7b111)

@@ -6,11 +6,19 @@ Manga pages → animated chapter video. `koma` is the Python CLI.
 [DECISIONS.md](DECISIONS.md) records settled owner decisions.
 [Model guidance](docs/models.md) distinguishes shipped configuration from live qualification.
 
-## Current status
+## Direct-panel R2V — current direction
 
-The system has never been run end to end. There is no accepted generated work
-to migrate. Historical run counts, timings and installation claims are not
-acceptance evidence.
+The owner has replaced the colorize/keyframe pipeline with direct panel-to-video
+R2V. Start with the [local R2V test workflows](docs/r2v-workflow.md): a four-step
+turbo graph and a twenty-step control, with importable ComfyUI UI/API files.
+They are structurally tested, not hardware-qualified. The existing `render` CLI
+still uses the old I2V/keyframe path; integration awaits a successful output test.
+
+## Earlier implementation status
+
+The owner now reports generated-video tests with poor results. Earlier
+no-run statements describe the September 15 baseline, not current runtime state.
+Do not delete newer runtime work or treat old offline status as live acceptance.
 
 **Implemented (16 Sep 2026, offline-tested at `ef01272`; 275 tests + lint):**
 transactional SQLite store with work/attempt lifecycle and crash recovery

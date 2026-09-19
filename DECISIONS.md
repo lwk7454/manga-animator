@@ -1,10 +1,22 @@
 # Current decisions — manga-animator
 
-Updated 15 September 2026. These are owner decisions and retained product
+Updated 19 September 2026. These are owner decisions and retained product
 requirements, not claims that features have been implemented or qualified.
 [PLAN.md](PLAN.md) defines implementation contracts, defaults and acceptance gates.
 A subsequent owner instruction takes precedence. Do not silently reopen settled
 choices; update this file and the corresponding plan when a decision changes.
+
+## Current generation direction — 19 September 2026
+
+**D14: Direct manga-panel R2V replaces colorization and generated keyframes.**
+The original panel is the video reference. Do not require a color master,
+outpainted keyframe or fake KEYFRAMED state. This supersedes the retained
+color-master/outpaint requirement below and the corresponding older PLAN stages.
+The owner has now tested generated video and reports poor quality; D01 describes
+the earlier baseline and is not permission to discard current runtime data.
+The standalone R2V workflow remains pending owner-machine validation; see
+[the test guide](docs/r2v-workflow.md). Other local-only, approval and recovery
+requirements remain in force.
 
 ## Owner-confirmed requirements
 
