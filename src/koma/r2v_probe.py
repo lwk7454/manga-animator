@@ -126,7 +126,11 @@ def enums(spec):
     if isinstance(spec[0], list):
         return spec[0]
     if len(spec) > 1 and isinstance(spec[1], dict):
-        return spec[1].get("options")
+        options = spec[1].get("options")
+        if isinstance(options, list) and options and isinstance(options[0], dict):
+            # COMFY_DYNAMICCOMBO_V3: option dicts with a "key" are valid values.
+            return [o["key"] for o in options if isinstance(o, dict) and "key" in o]
+        return options
     return None
 
 
