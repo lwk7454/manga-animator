@@ -28,7 +28,7 @@ from ..log import get_logger
 
 log = get_logger("storage.database")
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DB_NAME = "koma.sqlite3"
 _BUSY_TIMEOUT_MS = 5000
 
@@ -403,8 +403,8 @@ CREATE TABLE IF NOT EXISTS asset_occurrence_bindings (
     subject_kind    TEXT NOT NULL CHECK (subject_kind IN ('panel', 'shot')),
     panel_id        TEXT,               -- set when subject_kind='panel'
     shot_id         TEXT,               -- set when subject_kind='shot'
-    asset_id        TEXT NOT NULL REFERENCES assets(id),
-    asset_revision  INTEGER NOT NULL CHECK (asset_revision > 0),
+    asset_id        TEXT REFERENCES assets(id),  -- NULL for unknown/ambiguous
+    asset_revision  INTEGER NOT NULL DEFAULT 0,
     state           TEXT NOT NULL DEFAULT 'bound'
                     CHECK (state IN ('bound', 'unknown', 'ambiguous')),
     binding_revision INTEGER NOT NULL CHECK (binding_revision > 0),
@@ -494,6 +494,34 @@ CREATE TABLE IF NOT EXISTS run_plans (
     updated_at      TEXT NOT NULL,
     UNIQUE (chapter_id, revision)
 );
+"""
+
+
+
+# ── v3 migration (R1.1): allow NULL asset_id for unknown/ambiguous bindings ──
+_MIGRATION_V3 = """
+CREATE TABLE IF NOT EXISTS asset_occurrence_bindings_new (
+    id              TEXT PRIMARY KEY,
+    series_id       TEXT NOT NULL REFERENCES series(id),
+    subject_kind    TEXT NOT NULL CHECK (subject_kind IN ('panel', 'shot')),
+    panel_id        TEXT,
+    shot_id         TEXT,
+    asset_id        TEXT REFERENCES assets(id),
+    asset_revision  INTEGER NOT NULL DEFAULT 0,
+    state           TEXT NOT NULL DEFAULT 'bound'
+                    CHECK (state IN ('bound', 'unknown', 'ambiguous')),
+    binding_revision INTEGER NOT NULL CHECK (binding_revision > 0),
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    CHECK ((subject_kind = 'panel' AND panel_id IS NOT NULL)
+           OR (subject_kind = 'shot' AND shot_id IS NOT NULL))
+);
+INSERT INTO asset_occurrence_bindings_new
+    SELECT id, series_id, subject_kind, panel_id, shot_id, asset_id,
+           asset_revision, state, binding_revision, created_at, updated_at
+    FROM asset_occurrence_bindings;
+DROP TABLE asset_occurrence_bindings;
+ALTER TABLE asset_occurrence_bindings_new RENAME TO asset_occurrence_bindings;
 """
 
 
@@ -589,6 +617,15 @@ class Database:
                     (2,),
                 )
                 version = 2
+            if version < 3:
+                # v2 stores created asset_id NOT NULL; rebuild nullable (R1.1).
+                conn.executescript(_MIGRATION_V3)
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, applied_at)"
+                    " VALUES (?, datetime('now'))",
+                    (3,),
+                )
+                version = 3
             conn.commit()
         except BaseException:
             try:
