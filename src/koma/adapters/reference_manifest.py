@@ -34,8 +34,11 @@ def build_reference_manifest(
     prompt_tag is ONE-BASED per the installed validator (<Picture 1> is the
     edit_image; refs start at <Picture 2>).
     """
+    # Direct-panel route (D14): the panel is the FIRST REFERENCE
+    # (ref_image_0, prompt tag <Picture 1>) — no edit_image slot. The panel
+    # is a soft story/composition reference, not a locked first frame.
     manifest: list[dict[str, Any]] = [{
-        "slot_key": "edit_image",
+        "slot_key": "ref_image_0",
         "prompt_tag": "<Picture 1>",
         "role": "story_composition",
         "entity": None,
@@ -49,12 +52,12 @@ def build_reference_manifest(
         for b in sorted(bindings, key=lambda x: (x["asset_id"], x["asset_revision"])):
             ordered.append((role, f"{b['asset_id']}", b))
     for role, entity, b in ordered:
-        if len(manifest) >= 1 + MAX_REF_IMAGES:
+        if len(manifest) >= MAX_REF_IMAGES:
             raise ReferenceManifestError(
                 f"reference capacity exceeded ({MAX_REF_IMAGES} refs max): "
                 "split the shot or reduce bound entities — references are never dropped")
         manifest.append({
-            "slot_key": f"ref_image_{len(manifest) - 1}",
+            "slot_key": f"ref_image_{len(manifest)}",
             "prompt_tag": f"<Picture {len(manifest) + 1}>",
             "role": f"{role}_identity",
             "entity": entity,
@@ -66,9 +69,9 @@ def build_reference_manifest(
 
 
 def validate_manifest_against_capacity(manifest: list[dict[str, Any]]) -> None:
-    n_refs = sum(1 for m in manifest if m["slot_key"] != "edit_image")
-    if n_refs > MAX_REF_IMAGES:
-        raise ReferenceManifestError(f"{n_refs} refs > capacity {MAX_REF_IMAGES}")
+    if len(manifest) > MAX_REF_IMAGES:
+        raise ReferenceManifestError(
+            f"{len(manifest)} refs > capacity {MAX_REF_IMAGES}")
     slots = [m["slot_key"] for m in manifest]
     if len(slots) != len(set(slots)):
         raise ReferenceManifestError("duplicate slot keys in manifest")

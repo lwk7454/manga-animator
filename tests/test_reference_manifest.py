@@ -26,7 +26,7 @@ def test_slot_order_deterministic_panel_first():
     # characters sorted by (asset_id, revision) regardless of input order
     assert m[1]["entity"] == "asset:a" and m[1]["prompt_tag"] == "<Picture 2>"
     assert m[2]["entity"] == "asset:b" and m[2]["prompt_tag"] == "<Picture 3>"
-    assert m[1]["slot_key"] == "ref_image_0"  # zero-based socket, one-based tag
+    assert m[1]["slot_key"] == "ref_image_1"
 
 
 def test_capacity_overflow_raises_never_drops():
@@ -39,11 +39,11 @@ def test_capacity_overflow_raises_never_drops():
 
 
 def test_exact_capacity_nine_is_allowed():
-    chars = [_b(f"asset:{i:02d}", 1) for i in range(9)]
+    chars = [_b(f"asset:{i:02d}", 1) for i in range(8)]  # panel + 8 = 9 total
     m = build_reference_manifest(
         panel_artifact_id="art:p", panel_sha256="sha:p",
         character_bindings=chars)
-    assert len(m) == 10  # panel + 9
+    assert len(m) == 9
     validate_manifest_against_capacity(m)
 
 
