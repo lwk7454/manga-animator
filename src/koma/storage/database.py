@@ -28,7 +28,7 @@ from ..log import get_logger
 
 log = get_logger("storage.database")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DB_NAME = "koma.sqlite3"
 _BUSY_TIMEOUT_MS = 5000
 
@@ -352,6 +352,150 @@ CREATE TABLE IF NOT EXISTS kv_meta (
 );
 """
 
+# ── v2 migration (R1): versioned assets, story beats, shot plans, candidates ──
+# Additive only; no changes to existing v1 tables (docs/r0-compat-map.md).
+_MIGRATION_V2 = """
+CREATE TABLE IF NOT EXISTS assets (
+    id                    TEXT PRIMARY KEY,
+    series_id             TEXT NOT NULL REFERENCES series(id),
+    kind                  TEXT NOT NULL
+                          CHECK (kind IN ('character', 'object', 'background')),
+    display_name          TEXT NOT NULL,
+    importance            TEXT NOT NULL DEFAULT 'normal'
+                          CHECK (importance IN ('normal', 'story', 'required')),
+    active_revision       INTEGER,
+    source_occurrences    TEXT NOT NULL DEFAULT '[]',  -- JSON list of panel ids
+    created_at            TEXT NOT NULL,
+    updated_at            TEXT NOT NULL,
+    UNIQUE (series_id, kind, display_name)
+);
+
+CREATE TABLE IF NOT EXISTS asset_revisions (
+    id                    TEXT PRIMARY KEY,
+    asset_id              TEXT NOT NULL REFERENCES assets(id),
+    revision              INTEGER NOT NULL CHECK (revision > 0),
+    payload               TEXT NOT NULL,  -- versioned JSON, validated on read
+    origin                TEXT NOT NULL DEFAULT 'generated'
+                          CHECK (origin IN ('uploaded', 'generated', 'registry-v1')),
+    artifact_ids          TEXT NOT NULL DEFAULT '[]',  -- JSON list
+    parent_revision       INTEGER,
+    created_at            TEXT NOT NULL,
+    UNIQUE (asset_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS asset_approvals (
+    id              TEXT PRIMARY KEY,
+    asset_id        TEXT NOT NULL REFERENCES assets(id),
+    revision        INTEGER NOT NULL CHECK (revision > 0),
+    state           TEXT NOT NULL
+                    CHECK (state IN ('draft', 'awaiting_review', 'approved',
+                                     'rejected', 'superseded')),
+    decision_note   TEXT NOT NULL DEFAULT '',
+    approved_by     TEXT NOT NULL DEFAULT '',
+    approved_at     TEXT,
+    created_at      TEXT NOT NULL,
+    UNIQUE (asset_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS asset_occurrence_bindings (
+    id              TEXT PRIMARY KEY,
+    series_id       TEXT NOT NULL REFERENCES series(id),
+    subject_kind    TEXT NOT NULL CHECK (subject_kind IN ('panel', 'shot')),
+    panel_id        TEXT,               -- set when subject_kind='panel'
+    shot_id         TEXT,               -- set when subject_kind='shot'
+    asset_id        TEXT NOT NULL REFERENCES assets(id),
+    asset_revision  INTEGER NOT NULL CHECK (asset_revision > 0),
+    state           TEXT NOT NULL DEFAULT 'bound'
+                    CHECK (state IN ('bound', 'unknown', 'ambiguous')),
+    binding_revision INTEGER NOT NULL CHECK (binding_revision > 0),
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    CHECK ((subject_kind = 'panel' AND panel_id IS NOT NULL)
+           OR (subject_kind = 'shot' AND shot_id IS NOT NULL))
+);
+
+CREATE TABLE IF NOT EXISTS story_beats (
+    id              TEXT PRIMARY KEY,
+    series_id       TEXT NOT NULL REFERENCES series(id),
+    chapter_id      TEXT NOT NULL REFERENCES chapters(id),
+    plan_revision   INTEGER NOT NULL CHECK (plan_revision > 0),
+    beat_index      INTEGER NOT NULL CHECK (beat_index > 0),
+    source_panel_ids TEXT NOT NULL,      -- JSON list, ordered
+    supporting_text TEXT NOT NULL DEFAULT '',
+    participants    TEXT NOT NULL DEFAULT '[]',   -- JSON list of asset ids
+    dialogue_line_ids TEXT NOT NULL DEFAULT '[]', -- JSON list
+    allowed_motion  TEXT NOT NULL DEFAULT '[]',   -- JSON list
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    UNIQUE (chapter_id, plan_revision, beat_index)
+);
+
+CREATE TABLE IF NOT EXISTS shot_plan_revisions (
+    id              TEXT PRIMARY KEY,
+    series_id       TEXT NOT NULL REFERENCES series(id),
+    chapter_id      TEXT NOT NULL REFERENCES chapters(id),
+    shot_id         TEXT NOT NULL,
+    revision        INTEGER NOT NULL CHECK (revision > 0),
+    beat_coverage   TEXT NOT NULL,       -- JSON ordered list of story_beat ids
+    source_panel_ids TEXT NOT NULL,      -- JSON list
+    purpose         TEXT NOT NULL DEFAULT '',
+    start_state     TEXT NOT NULL DEFAULT '',
+    end_state       TEXT NOT NULL DEFAULT '',
+    action_beats    TEXT NOT NULL DEFAULT '[]',   -- JSON list
+    camera          TEXT NOT NULL DEFAULT '{}',   -- JSON: size, angle, action
+    duration_policy TEXT NOT NULL DEFAULT '{}',   -- JSON
+    route           TEXT NOT NULL DEFAULT 'direct_r2v'
+                    CHECK (route IN ('direct_r2v', 'composition_assisted')),
+    route_reason    TEXT NOT NULL DEFAULT '',
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    UNIQUE (shot_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS shot_ratio_specs (
+    id              TEXT PRIMARY KEY,
+    shot_revision_id TEXT NOT NULL REFERENCES shot_plan_revisions(id),
+    ratio           TEXT NOT NULL,
+    target_width    INTEGER NOT NULL CHECK (target_width > 0),
+    target_height   INTEGER NOT NULL CHECK (target_height > 0),
+    placement       TEXT NOT NULL DEFAULT '{}',   -- JSON: scale, position, safe areas
+    framing_note    TEXT NOT NULL DEFAULT '',
+    reference_manifest TEXT NOT NULL DEFAULT '[]', -- JSON labelled slot manifest
+    generation_profile TEXT,
+    dependency_fingerprint TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    UNIQUE (shot_revision_id, ratio)
+);
+
+CREATE TABLE IF NOT EXISTS shot_candidates (
+    id              TEXT PRIMARY KEY,
+    series_id       TEXT NOT NULL REFERENCES series(id),
+    shot_revision_id TEXT NOT NULL REFERENCES shot_plan_revisions(id),
+    ratio           TEXT NOT NULL,
+    candidate_index INTEGER NOT NULL CHECK (candidate_index > 0),
+    artifact_id     TEXT NOT NULL REFERENCES artifacts(id),
+    input_fingerprint TEXT NOT NULL,
+    acceptance      TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (acceptance IN ('pending', 'accepted', 'rejected', 'superseded')),
+    rejection_note  TEXT NOT NULL DEFAULT '',
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    UNIQUE (shot_revision_id, ratio, candidate_index)
+);
+
+CREATE TABLE IF NOT EXISTS run_plans (
+    id              TEXT PRIMARY KEY,
+    series_id       TEXT NOT NULL REFERENCES series(id),
+    chapter_id      TEXT NOT NULL REFERENCES chapters(id),
+    revision        INTEGER NOT NULL CHECK (revision > 0),
+    frozen_snapshot TEXT NOT NULL,       -- JSON: shot revisions, ratios, pins
+    required_ratios TEXT NOT NULL,       -- JSON list
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    UNIQUE (chapter_id, revision)
+);
+"""
+
 
 class Database:
     """Connection policy + schema/migrations for one data root."""
@@ -429,11 +573,22 @@ class Database:
             if version >= SCHEMA_VERSION:
                 conn.rollback()
                 return
-            conn.executescript(_SCHEMA_V1)
-            conn.execute(
-                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, datetime('now'))",
-                (SCHEMA_VERSION,),
-            )
+            if version < 1:
+                conn.executescript(_SCHEMA_V1)
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, applied_at)"
+                    " VALUES (?, datetime('now'))",
+                    (1,),
+                )
+                version = 1
+            if version < 2:
+                conn.executescript(_MIGRATION_V2)
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, applied_at)"
+                    " VALUES (?, datetime('now'))",
+                    (2,),
+                )
+                version = 2
             conn.commit()
         except BaseException:
             try:

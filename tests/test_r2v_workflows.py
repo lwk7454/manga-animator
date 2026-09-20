@@ -110,7 +110,7 @@ class TestPanelR2VWorkflows(unittest.TestCase):
             graph = read(variant, "api")
             visiting, visited = set(), set()
 
-            def visit(key):
+            def visit(key, visiting=visiting, visited=visited, graph=graph):
                 self.assertNotIn(key, visiting)
                 if key in visited:
                     return
