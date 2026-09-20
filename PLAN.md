@@ -1,4 +1,284 @@
-# Koma v1 — implementation handoff and acceptance contract
+# Koma — colored manga-to-video and local web app implementation plan
+
+**Current handoff: 20 September 2026. Planning only; none of the new work below is claimed implemented.**
+**Inspected main:** `0aa266efabc717b450e1ee5930a2170eba0613b2`.
+
+This section, R0–R9, is the active implementation sequence. It supersedes conflicting requirements in the retained historical plan below. Preserve compatible reliability, audio, import and storage contracts; do not repeat completed work. The owner reports that the programmatic R2V test worked. That establishes an owner-reported successful run, not measured visual quality, memory, throughput or full application qualification. Preserve current generated work and state.
+
+## A. Settled direction and explicit supersessions
+
+| Area | Current contract |
+|---|---|
+| Output | Colored scenes reimagined for video, with suitable camera distance and generated surroundings filling the requested canvas. |
+| Story | Supporting movement is allowed; invented story events are prohibited. Preserve identity, intent, causality and important objects. |
+| References | Optional official references; human approval is required for every character and for important objects and backgrounds. Generated proposals also require approval. Official provenance is not approval. |
+| Product | A local web app manages the workflow. All core operations must also be accessible programmatically; no manual ComfyUI editor steps. |
+| Video route | Direct panel R2V remains the starting route. An optional generated color composition is permitted if controlled testing demonstrates useful quality improvement. It is not a mandatory per-panel stage. |
+| Ratios | Both 16:9 and 9:16, independently composed and generated. Shared references and story facts; separate ratio-specific output work. |
+| Motion | Natural-speed body movement and purposeful camera motion; avoid sluggish actions and slow drifting pans. No example clips are available. |
+| Granularity | Several panels may become one shot; one panel may become several shots. Preserve source-to-shot and story-beat traceability. |
+| Hardware | One local RTX 3090, 32 GB system RAM. Discover actual GPU memory and available RAM before profiling; do not mistake system RAM for VRAM. |
+| Backend | Keep MiniMax H3 primary. Alternative backends are optional qualification candidates, not a required platform rewrite or a claim of better quality. |
+| Locality/recovery | Retain local-only generation, independent retries, durable uncertainty reconciliation, single execution owner, approved takeover, pause/release/resume. |
+
+Supersede the earlier ban on intermediate images, the ban on a web application, one-panel/one-video assumptions, and mandatory pixel-preserving full-source outpainting. Recomposition may redraw a view; source images remain immutable. The old instruction that no real runs exist is historical. The old colorize→keyframe→render chain is not the default.
+
+Keep the prohibition on changing speed merely to conceal short generation or broken audio timing. Proposed creative pacing defaults: trim unused lead-in/tail; prefer regeneration over retiming; any creative speed adjustment is explicit, reviewed and recorded, disabled by default. Do not automatically stretch speech or a finished dialogue mix.
+
+Design defaults, distinguished from owner requirements: polished 2D anime appearance; adjacent-panel/page context; stable camera unless movement has narrative purpose; hard cuts; one-time reusable asset approval plus per-clip acceptance. Style is project-configurable. Auto-proposed shots remain editable before dispatch. These choices do not promise model performance.
+
+## B. Architecture and existing code to reuse
+
+The web app and CLI call the same Python application services. SQLite and immutable media remain authoritative. Keep ComfyUI as a private generation service; the browser never sends workflow graphs directly to it. Do not implement a second scheduler in the frontend or reuse probe JSON files as the production database.
+
+| Existing seam | Planned change |
+|---|---|
+| `storage/database.py`, `storage/domain_store.py`, `storage/artifacts.py` | Add versioned assets, shot plans, bindings and edit decisions through migrations; retain transactional work/attempt/artifact promotion. |
+| `models/domain.py`, `models/script.py`, `models/work.py` | Add typed asset/shot payloads without treating panel progress enums as completion authority. |
+| `application/control.py`, `scheduler/ownership.py`, `gpu/lanes.py` | Extend current run controls to web requests and a supervised single worker; reuse owner fencing and measured release. |
+| `steps/registry.py`, `steps/cards.py`, `review/sheets.py` | Reuse registry and approval evidence; expose them through shared services and the new UI. |
+| `adapters/compiler.py`, `adapters/registry.py`, `gpu/worker.py` | Add distinct direct-R2V and optional composition-assisted roles, installed-schema checks and pinned multi-reference bindings. |
+| `r2v_probe.py`, `config/workflows/minimax_h3_panel_r2v_*.api.json` | Keep working qualification entrypoints. Extract shared transport/compiler helpers only where duplication would change behavior; retain recovery contracts and existing probe commands. |
+| `audio.py`, `video.py`, `encode.py`, `mux.py`, `steps/audio_assembly.py` | Adapt timelines and assembly from panel slots to shot slots, preserving exact dialogue/subtitle mapping and technical validation. |
+| New `application/assets.py`, `application/shots.py`, `application/run.py` | Own domain operations, immutable planning and orchestration. Use these names unless existing newer equivalents already serve the purpose. |
+| New `web/` frontend and `src/koma/web/` API | React/TypeScript/Vite UI and a small FastAPI service are the selected implementation defaults. Serve built static assets and API from one local origin. No Next.js server, second database, Redis or distributed worker system. |
+
+Only adopt dependencies when implementing the relevant milestone; pin them in existing project dependency mechanisms and a frontend lockfile. Keep Python as the orchestration runtime; do not rewrite working services into TypeScript. No runtime CDN, remote fonts, analytics or cloud image processing. A development frontend proxy must preserve the production API contract.
+
+Suggested launch contract: `koma serve` starts the local API/static UI; a single supervised worker process acquires the existing execution lock only while executing work. Read-only pages and approval edits remain available during generation. Starting a second server/worker must not bypass the ownership policy. The server may remain alive while the GPU is released. This replaces the old foreground-CLI-only default without creating multiple execution owners.
+
+## C. Durable domain and invalidation contracts
+
+Implement migrations against the actual current schema, not a second database. Exact SQL names may follow existing conventions; these logical entities and constraints are required:
+
+| Entity | Required content and invariants |
+|---|---|
+| Asset | Stable series-scoped ID, kind `character/object/background`, display name, importance, source occurrences and active approved revision pointer. All characters require approval; objects/backgrounds require it when marked important. |
+| Asset revision | Immutable revision ID; color palette, identity features, geometry/scale, variant/state, source citations, uploaded/generated origin, image artifact IDs/hashes, generation manifest, parent revision. Separate identity from shot lighting. |
+| Asset approval | Exact revision/hash, approving user action, timestamp and decision/reason. State `draft/awaiting_review/approved/rejected/superseded`. Only explicit user action approves; candidate generation never does. |
+| Asset occurrence/binding | Panel or shot occurrence mapped to exact asset and variant revision. Explicit unknown/ambiguous state blocks production. Do not infer exact bindings from matching display names. |
+| Story beat | Stable ID within a revisioned chapter plan; source panel/crop revisions and supporting text; action, participants, dialogue IDs, causal ordering and allowed supporting motion. |
+| Shot plan revision | Stable shot ID plus immutable revision, ordered beat coverage, source panel revisions, approved asset bindings, shot purpose, start/end state, action beats, camera/framing, duration policy and route. |
+| Ratio shot specification | Shot revision, ratio, target canvas, subject placement/scale, safe areas, framing rationale, reference bundle, route, generation profile and source dependency fingerprint. |
+| Candidate/acceptance | Multiple immutable outputs per shot/ratio; selected artifact and explicit acceptance tied to current dependency revisions. Keep rejected candidates and reasons until explicit cleanup. |
+| Edit decision | Candidate ID, source frame in/out, playback rate default 1, output frame count, audio/line mapping and reviewed reason. Immutable revision, not destructive file editing. |
+| Run plan | Frozen chapter/order/shot revisions, required ratios, profile pins, dependencies and work IDs. Replanning creates a new revision and reuses matching completed work. |
+
+Extend existing generic work/artifact records to support shot subjects, including foreign keys and uniqueness. Preserve existing panel work; do not coerce a shot into a fake panel or renumber panel IDs. If panel columns are currently mandatory, migrate safely to an explicit subject kind with validation. Back up before migration, test rollback/failure recovery, and refuse unsupported versions. No destructive reset justified by the original no-run decision.
+
+A chapter's approved beat coverage is the completion authority: every required beat must be covered, dialogue lines must have one intended delivery occurrence, and intentional repeated views must be labelled. Multiple shots of one panel are not duplicate import errors. A grouped shot must preserve beat order and may not skip required events. Panel-level progress becomes a derived view of its required shot contributions for every ratio.
+
+Fingerprint generation work from source crop/context hashes, beat/shot revision, exact asset bindings, ratio/framing, prompt/compiler version, profile/component pins, seed and conditioning artifacts. Timing changes invalidate renders only when conditioning or required frame count changes; subtitle-only edits should not invalidate silent raw video unnecessarily. Assembly fingerprints also include selected clips, trims, timeline, audio and subtitle revisions.
+
+| Change | Required effect |
+|---|---|
+| Approve a new character/object/background revision | Show affected bound shots; rebind only through an explicit action. Historical renders retain old bindings. Old-approved outputs remain valid for their frozen run unless that approval is revoked. |
+| Revoke approval or explicitly rebind shots | Mark affected current deliverables stale; block promotion under revoked bindings. In-flight results may be archived but cannot become current. |
+| Edit one ratio's framing/composition | Invalidate only that ratio's dependent generation/edit/assembly. |
+| Reorder panels or regroup shots | New chapter/shot plan; reuse byte-identical matching dependencies, revalidate beat and dialogue coverage. |
+| Change a crop revision | Invalidate dependent context, bindings/proposals where applicable and shot outputs; preserve panel identity. |
+| Add a ratio | Schedule missing ratio specifications and outputs; retain references and other completed ratios. |
+| Reject a clip | Keep its evidence, create an explicit new candidate attempt when requested; do not silently invalidate another ratio. |
+
+At dispatch and promotion, recheck required approvals, work fingerprint, run revision and owner fence in short transactions. Never hold database transactions during model calls. A concurrent UI edit must not allow stale output to replace a newly accepted result.
+
+## D. Reference preparation and local approval UI
+
+Reference preparation precedes production-consistent generation, but candidate reference generation must not depend on its own approval. Use a separate proposal role and namespace. Explicit previews may use drafts and must be visibly labelled; they cannot be silently promoted to production.
+
+1. Import chapter and review order; run local extraction to propose characters, important objects, locations and occurrences. Reuse existing script substeps and preserve successful translations.
+2. UI shows the inventory with source panel crops, uncertain identity links and importance flags. The user can merge/split identities and mark recurring/story-relevant objects or locations important. Unresolved important entities block production. Incidental background decoration does not require an individual asset record.
+3. Allow official reference upload or generate a local colored proposal from source crops and a style description. Preserve original images and origin notes. Optional official references constrain the proposal but are never automatically approved.
+4. Character approval view presents a face crop, full-body view where supportable, palette and outfit/state variants. Additional angles are useful candidates, not fabricated canonical facts. Object view includes silhouette, palette and scale; background view includes layout/landmarks, palette and continuity notes.
+5. Approve/reject/regenerate/edit palette through revisioned actions. A human must inspect every required asset. Batch approval is allowed only for explicitly selected visible revisions, never unseen proposals.
+6. Bind approved variants to occurrences. Conflicting official references or unclear outfits remain unresolved until reviewed. Return-to-review links must identify which exact asset blocks a shot.
+
+The UI needs: project/chapter list; source/order view; asset inventory/review; shot storyboard with per-ratio composition; run queue and resource status; clip comparison/acceptance; export status. Deliver the asset screen first, not a large visual workflow editor.
+
+Media is served by artifact ID with range requests for video; arbitrary filesystem paths are not API inputs. Uploads validate type, decoded dimensions, size and path containment. API defaults to loopback with origin/host checks and CSRF protection for mutations. Browser access does not confer permission to execute arbitrary shell commands. LAN exposure is a separate explicit configuration with authentication, not a default bind to all interfaces.
+
+## E. Shot direction, ratio composition and reference conditioning
+
+The shot planner uses current panel crops, approved reading order, adjacent context and verified script facts. Broader chapter context may resolve identity or location; do not import future plot events into an earlier shot. Generated descriptions must separate source-supported facts from harmless visual completion. Unsupported new actions, participants, outcomes or dialogue are prohibited.
+
+Each shot proposal includes:
+
+- Source panel/crop IDs and ordered beat IDs; participants and exact approved asset revisions.
+- Story purpose; starting state; action and ending state; explicit forbidden changes.
+- Shot size (close/medium/wide), subject scale/placement, camera angle and camera action with rationale.
+- A timed action outline, target editorial duration and measurable dialogue constraints.
+- Per-ratio framing and what surroundings need invention, with background reference bindings.
+- Route `direct_r2v` or `composition_assisted`, plus the reason for the latter.
+
+Defaults: reactions favor close/medium shots; interactions show the relevant participants; physical action shows enough body/environment to understand the action. These are editable heuristics, not hard-coded shot-size rules. Reframe each ratio independently; do not crop the landscape video into portrait. Preserve story-relevant content, not every original source pixel. Generate unseen surroundings consistently with approved locations; important newly invented assets return to approval before production.
+
+For direct R2V, supply the manga crop as story/composition evidence and approved colored references as appearance evidence. Build a deterministic labelled reference manifest mapping input slot → artifact hash → semantic role/entity. Prompt text must refer to the exact installed node's reference identifiers. Verify multiple-reference capacity and socket behavior against the pinned ComfyUI schema; the existing single-image probe is not proof of multi-reference behavior. Do not silently drop references exceeding capacity or build an unqualified contact-sheet workaround. Split the shot, choose supported conditioning, or hold for review.
+
+For composition-assisted shots, generate one ratio-specific colored staging image with approved references: suitable camera distance, expanded environment, cleaned text/borders and intended start pose. Review it as a candidate before expensive video work during qualification. Once the route is qualified, allow a project option to automate composition selection, while preserving required asset approvals and clip review. A composition is a separate artifact role, not evidence that every panel has passed an old KEYFRAMED state.
+
+Test two precise adapter roles separately: composition as an R2V reference versus composition as an I2V first frame. Never relabel one as the other; their framing constraints differ. Pick the supported route with observed quality gains. Reuse existing image tooling only if it passes colored identity and reframing tests; no automatic restoration of the old color-master/outpaint pipeline.
+
+## F. Motion, timing and editorial rules
+
+Natural speed is an output-quality requirement, not a synonym for higher FPS or more optical flow. Frame interpolation does not fix slow action. An arbitrary faster playback flag is not a generation solution.
+
+Prompt compilation should describe concrete motion and timing, such as “turns promptly, stops facing the other speaker, then speaks,” rather than only “dynamic/cinematic.” Default to stable framing or a short purposeful camera move; avoid routine slow push-ins, orbiting and languid pans. Negative-prompt instructions are used only if the selected backend actually supports them. Do not claim exact temporal control from natural-language timestamps.
+
+Plan short editorial shots around action beats; the backend may require a longer minimum generation. Record separate requested editorial duration, supported generated frame count, chosen trim interval and final timeline duration. Use the pinned profile's real frame grid/min/max; never hard-code another model's limits into common planning. Short fast action can occupy a trimmed portion of a longer valid generation.
+
+For speech, measure TTS and allocate line/event intervals across shots. One line may continue over a cut without being synthesized twice. If the action clip cannot cover required dialogue naturally, propose a supporting shot, revise the shot allocation or regenerate. Never freeze frames, pad video or slow it down to conceal missing duration. Trim changes must revalidate all line/event intervals and subtitle times.
+
+A reviewed creative speed adjustment may be stored in an edit decision, but is disabled by default. Do not apply it to dialogue/impact-synchronized shots without reworking and reviewing their timing. Preserve raw video and record the transformation; do not misreport retimed footage as a raw natural-speed success.
+
+Clip review compares source, approved references and candidate at 1× playback. Record separate outcomes for color/style, identity, story correctness, framing, body-motion pace and camera pace. Optional motion statistics are diagnostic only: a fast camera can hide a static subject; high motion can mean flicker. Human acceptance remains authoritative. These are creative/technical checks, not the removed content/age guard.
+
+## G. Model and hardware qualification strategy
+
+Keep the working H3 workflow as the control. “It ran” and “best quality” are different claims; there is no measured comparative quality ranking for this manga workload yet. Do not switch the backend as a presumed cure for slow motion.
+
+The primary comparison is within H3: the currently working turbo route, the non-turbo baseline where feasible, and approved colored references with optional composition assistance. Capture actual model/encoder/VAE/LoRA hashes, ComfyUI/node versions, quantization, sampler/scheduler, steps, seed, conditioning order and compile manifest. Stock, pruned and fused variants are distinct profiles; no filename substitution to satisfy a missing model.
+
+GPU scheduling must account for both GPU memory and the owner's 32 GB host RAM. Sequentially load local planning/image/video/TTS services as needed. Record idle memory, peak GPU allocation, peak host memory, load time, generation time, download/decode time, swapping and failures. Do not leave a large planning LLM resident while video generation needs memory. Offload is allowed where measured behavior is acceptable. Do not infer speed from advertised low-VRAM support or assume a quantized format has native acceleration on this GPU.
+
+An optional fallback experiment is Wan2.2 TI2V-5B with an approved composition input. Its official example documents a 24 GB GPU path using offload and CPU text encoding; this is evidence for a candidate, not proof it fits this machine's 32 GB host RAM or matches H3 quality/speed. See [Wan2.2 official inference instructions](https://github.com/Wan-Video/Wan2.2#run-text-image-to-video-generation). Keep this outside the critical implementation path. Recheck current official requirements before provisioning; do not add a model zoo, cloud fallback, or a second model by default. H3 integration details should be verified against [MiniMax's integration repository](https://github.com/MiniMax-AI/awesome-minimax-h3-integration) and the pinned installed ComfyUI source.
+
+Bounded experiment, run programmatically:
+
+1. Preserve one successful current probe and its exact settings as control evidence.
+2. Select three source cases: close-up, interaction with a recurring object/location, physical action. Include the same character across cases; approve required assets first.
+3. On one representative case, compare direct panel alone, direct panel plus colored references, and composition-assisted generation at one fixed seed and landscape ratio. Fixed seeds aid within-profile comparisons but do not equate different model architectures.
+4. Extend the best plausible route and the direct-reference control to all three cases in both ratios. Reuse exact valid prior runs; record every failure and rejected candidate, not only winners.
+5. Use a second seed for the provisional winner on all three cases/both ratios before selecting a default. Compare non-turbo only on a bounded case if quality defects plausibly relate to distillation; compare Wan only if H3 remains unsatisfactory or resource-infeasible.
+6. Human reviews the criteria in §F, records accepted/rejected reasons and accepted-output rate alongside total GPU time per accepted clip. The optional image stage must justify its extra cost through observed improvement. No unbounded automatic seed search.
+
+Design default retry budget: one initial candidate plus at most one explicitly enabled automatic quality retry; otherwise hold for review. Transport uncertainty never consumes this as permission to resubmit. A new quality attempt requires a terminal reconciled prior attempt and a recorded prompt/seed/route change. The owner has not set a time SLA; show measured times and configurable limits rather than inventing one.
+
+## H. API, concurrency and agent contract
+
+Expose versioned endpoints under `/api/v1`; generate an OpenAPI schema from the typed API. UI and agents use identical services. Proposed operation groups:
+
+| Group | Minimum operations |
+|---|---|
+| Projects/chapters | List/create, import, inspect order and revisions, propose/review order. |
+| Assets | Inventory, upload/propose revision, inspect candidates, approve/reject/revoke, bind occurrences, dependency impact preview. |
+| Shots | Propose/list/read/edit plan revisions, regroup/split, inspect coverage, edit ratio specifications and reference manifests. |
+| Runs | Plan/dry-run with blockers and reused work, start, status/events, request pause/release, resume, review ambiguous attempts. |
+| Outputs | Stream artifact, list candidates, compare metadata, accept/reject, create edit decision, assemble/export status. |
+
+All mutations include expected revision; stale edits return conflict with current revision and affected fields. Dispatch operations accept idempotency keys persisted with request hash/result; same key/different payload is a conflict. Network retries must not create duplicate work. Async requests return operation/run ID with durable state, not a blocking HTTP generation response.
+
+Use persisted monotonic event IDs with polling or SSE reconnection; frontend subscriptions are presentation only and cannot own work. Refreshing/closing the browser must not interrupt a run. Report unavailable services, review blockers, held uncertainty, requested pause and verified release distinctly. No fabricated percent complete for an opaque backend.
+
+Separate editing from GPU execution ownership. UI can edit new revisions during a run; the running plan remains frozen, and promotion checks whether it is still current. Starting another run either queues explicit work under the one owner or returns a clear conflict. Any takeover/kill confirmation names the exact owner process/run and is revalidated before action. Closing the browser never counts as approval. Multiple tabs are permitted; concurrent execution owners are not.
+
+On backend/worker restart, reconcile database attempts with remote queue/history before dispatch. Reuse the existing durable intent and fencing rules. ComfyUI request acceptance uncertainty holds work for review; it is not an automatic quality retry. A UI “Retry” action must explain when an ambiguous attempt still blocks it. Pause drains by default and verifies unload/release; terminating a local HTTP waiter does not free the remote GPU.
+
+## I. Ordered implementation milestones
+
+Each milestone is a coherent production change with durable feature tests and maintained documentation. Update this checklist as work lands; do not mark hardware acceptance complete from mocked tests. Implementing agents must inspect newer main before each milestone.
+
+### R0 — Baseline and reconciliation of existing contracts
+
+- Inventory existing migrations, registry/reference features, run controls, API absence and tests. Verify reported P01–P12 implementation against actual callers, not historical test counts.
+- Preserve a working probe invocation and owner-selected evidence locally; no user media or generated evidence committed to git.
+- Identify exact panel-only SQL constraints and stage-enum gates that prevent shots/direct R2V. Plan additive migrations and rollback before editing those paths.
+- Remove contradictory current-facing documentation as it is touched; historical contracts below remain subordinate.
+- Exit: reproducible offline baseline and a migration/workflow compatibility map in maintained docs. No reimplementation of already-working storage/ownership.
+
+### R1 — Versioned assets, shots and migrations
+
+- Implement entities/invariants in §C, store APIs, typed payloads, dependency fingerprints and promotion predicates.
+- Migrate existing character/variant approvals without inventing approval evidence; expose old references through the new asset abstraction. Preserve old run/output records and artifact paths.
+- Add coverage validation for one-to-many and many-to-one source mapping, dialogue uniqueness and per-ratio completeness.
+- Tests: migration on populated state, interrupted migration, stale revision conflicts, exact variant binding, revoked approval during execution, targeted invalidation and unchanged reimport.
+- Exit: pure/store-level planning can represent a multi-panel shot and two shots from one panel without data loss; missing approvals block only production-consistent work.
+
+### R2 — Local API and asset approval vertical slice
+
+- Add shared application services, same-origin API/static hosting and project/asset screens. Prefer existing UI style and keep keyboard-accessible controls.
+- Support official uploads and manual candidate registration first; connect local proposal generation in R3. Include approve/reject/revoke, variant binding and impact preview.
+- Add upload/media containment, origin/CSRF protections, expected revisions, idempotent mutations and typed errors. Keep controls operational while execution lock is held.
+- Tests: API permission/origin boundaries, invalid uploads, two-tab approval conflict, exact selected revision approval, preview separation, media range streaming. Browser test the complete upload→review→approve→bind path against the API.
+- Exit: owner can approve all required asset kinds in a local browser without ComfyUI; agents can perform equivalent draft operations and read blockers. Human approval is never simulated by the agent.
+
+### R3 — Local reference proposal and multi-reference qualification
+
+- Add a bounded local image proposal profile and durable generation jobs for character/object/background candidates; inspect existing image adapters before selecting a new one.
+- Extend H3 qualification to explicit multiple-reference manifests, schema/capacity checks and role-aware prompts. Preserve current single-panel probe behavior.
+- Run §G steps 1–3 on hardware; record identity, colors, framing, memory and speed evidence outside git.
+- Tests: reference slot order, rejected/unknown bindings, capacity overflow, candidate-generation approval-cycle avoidance, lost submission response, out-of-order stale completion.
+- Exit: a colored approved character can condition two different source shots with recorded visual review. If not, keep the route unqualified and use the bounded composition experiment; do not claim prompt text alone anchors identity.
+
+### R4 — Storyboard, shot planner and ratio specifications
+
+- Implement §E as a typed local proposal followed by deterministic coverage validation. Retain required script translations and line IDs.
+- UI edits shot grouping/order, intended actions, camera/framing, source links and per-ratio preview specs. Show inventions/uncertainties and missing references explicitly.
+- Plan direct and optional composition routes without forcing image work on every panel. Add per-ratio composition preview/review and immutable edit history.
+- Tests: new-event rejection/hold from unsupported proposals, omitted/duplicated beats, duplicated dialogue, future-context leakage fixtures, ratio-specific invalidation, mixed routes within one chapter.
+- Exit: an approved shot plan covers a chapter's required beats and exposes every generation input before GPU dispatch. Semantic validation remains review-assisted, not a promised automatic proof.
+
+### R5 — Production R2V execution and resumable web runs
+
+- Implement shared orchestration over existing work/attempt storage; direct R2V does not require KEYFRAMED. Incorporate optional composition dependencies only for selected shots.
+- Wire single supervised worker ownership, API/CLI control, queue/status events, resource lane handoff and immutable output promotion.
+- Qualify actual supported H3 multi-reference/optional I2V roles and retain exact profiles; no silent backend fallback.
+- Tests: browser refresh/disconnect, API restart, worker crash at intent/acceptance/download/promotion, idempotent double start, conflicting CLI owner, uncertain submission, approval change mid-run, drain/unload/resume and independent ratio retry.
+- Exit: one shot produces two independently resumable candidate outputs through UI/API with no manual ComfyUI graph editing; failures remain actionable and honest.
+
+### R6 — Motion review, candidate selection and bounded retries
+
+- Compile action/camera timing prompts, implement candidate comparison at 1× speed with contact sheets and separate quality reason fields.
+- Add deterministic trim/edit manifests and a disabled-by-default explicit creative retime control. Respect §F speech/event constraints.
+- Implement configurable candidate budget, recorded changes between attempts, terminal-attempt checks and clear held outcomes.
+- Complete §G steps 4–6; select route defaults from observed accepted-output rate and cost. Optional fallback benchmarking must not delay functional UI delivery.
+- Tests: repeat retry clicks, budget exhaustion, ambiguous prior attempt, invalid trim windows, event lost by trim, reviewed retime provenance and unchanged raw artifact hashes.
+- Exit: accepted samples show colored continuity, correct framing and non-sluggish body/camera motion across three cases/both ratios, with reviewer evidence. Failure means unqualified, not a hidden relaxed threshold.
+
+### R7 — Shot-based audio, subtitles and final assembly
+
+- Adapt measured dialogue timelines, local TTS, subtitles, SFX/BGM and final assembly to selected shot/edit revisions. Keep Japanese dialogue and English/Simplified Chinese subtitle requirements.
+- Handle dialogue over cuts and several panels in one shot without repeated lines. Plan more footage when needed instead of padding/slowing video.
+- Convert model-supported generation dimensions to exact delivery ratios through a documented reviewed framing transform: prefer sufficient generated coverage, no stretching or essential-content clipping. Nominal 864×480 is not exactly 16:9; validation must distinguish native canvas from exact delivery canvas. Qualify final upscale/encoder separately.
+- Tests: real FFmpeg fixture with grouped/split shots, trim offsets, cross-cut dialogue, exact frame/sample coverage, both ratio exports, subtitle correctness and stale selection invalidation.
+- Exit: a small chapter exports both exact-ratio videos with current accepted clips, required audio/subtitles, technical validation and a complete provenance manifest.
+
+### R8 — Local web workflow completion and operational qualification
+
+- Finish chapter dashboard, source/order review, approvals inbox, storyboard, queue controls, clip review and exports. Display specific blockers and next actions.
+- Add hardware qualification profile, configurable time/memory budgets and verified pause/release/resume on the actual 3090 setup. Do not automatically kill unrelated GPU applications.
+- Browser/API end-to-end test: import→review→approve assets→plan→render→pause/restart/resume→accept→export. Repeat with a changed asset revision and ensure only affected work changes.
+- Document installation, model provisioning, one-command local launch, programmatic use, recovery and backup. All examples use local endpoints and preserve state.
+- Exit: owner completes this path without using ComfyUI manually; agent automation exercises the same endpoints. No promise that pending hardware/visual gates have passed.
+
+### R9 — Cleanup and release
+
+- Remove obsolete mandatory stage gates, unused duplicated scheduling paths and stale instructions only after call-site/test audit. Keep useful qualification probes and long-term regression suites.
+- Retire unused graph/config files only when no supported CLI/profile/run provenance depends on them; preserve necessary old manifests or explicit compatibility readers. Do not delete accepted media or user references.
+- Run the full Python suite/lint, frontend type/build tests, API/browser integration tests and meaningful FFmpeg tests. Record hardware qualification separately from CI.
+- Update PLAN/DECISIONS/README/test guide to describe shipped behavior. Commit production code, maintained docs/config and durable tests only.
+- Exit: a reproducible release with no contradictory default paths and explicit known limitations.
+
+## J. Release criteria, deferred work and next-agent checklist
+
+The release is complete only when approved colored identities and important environments/objects are consistently represented, story beats are preserved, both ratios have independently accepted outputs, motion avoids unwanted sluggishness, and the entire workflow is manageable through the local web app and API. Technical checks do not substitute for visual acceptance. Persist required review outcomes per artifact revision.
+
+Deferred: multi-user/cloud hosting, distributed workers, public remote access by default, arbitrary node editors, automatic model marketplaces, character LoRA training, mandatory per-panel colorization, automatic optical-flow quality rejection, pose/motion capture pipelines, and a rewrite of the Python backend. These may be considered later only for a measured gap. The allowed supporting movement does not authorize invented story events.
+
+First actions for the implementing agent:
+
+1. Read current main, DECISIONS and this active section; reconcile new changes before applying R0.
+2. Verify the working single-panel probe remains intact. Preserve owner data and do not assume tests imply GPU access.
+3. Deliver R1 then R2 as the first useful product slice; R3 can qualify media behavior before broad orchestration work. R4 depends on the R1 model; R5 depends on R3/R4; R6–R9 follow in order.
+4. Do not re-ask settled creative questions. Missing runtime paths/model files/approval actions should surface as targeted setup or review tasks, not architectural blockers.
+5. Keep H3 primary; do not claim a model ranking, a runtime SLA or 32 GB RAM fit without measured evidence. Report uncertain quality/resource findings and retain bounded alternatives.
+
+---
+
+## Retained earlier engineering contracts — subordinate to A–J above
+
+The following 15–19 September handoff is retained for detailed recovery, storage, audio and testing contracts. Its numbered P tickets and baseline gap lists are historical, not an instruction to redo completed work. Where it conflicts, use the active R milestones above and current DECISIONS. In particular disregard its no-web-app default, mandatory keyframes, one-panel/one-clip coverage, and no-existing-output assumptions.
+
+# Historical v1 implementation handoff (superseded where noted)
 
 > **Direction update — 19 September 2026:** The owner now requires direct manga-panel R2V, without colorization or generated/outpainted keyframes. This supersedes all color-master/keyframe prerequisites and corresponding P09 work below. Preserve the other storage, approval, audio and recovery contracts. The owner reports actual video tests with poor quality; the earlier no-run baseline is historical, so do not discard current runtime work. Start with [the standalone R2V test guide](docs/r2v-workflow.md). The new graphs await hardware/output validation; the existing application render CLI still requires I2V keyframes. Integrate direct panel artifacts into a distinct R2V role after the output test, without falsely advancing panels to KEYFRAMED. The remaining detailed sections describe the earlier implementation plan where they conflict with this update.
 
@@ -1088,3 +1368,4 @@ The following are intentionally **dropped from the v1 backlog**, not silently fo
 7. Finish with the readiness level and concrete remaining blockers from §25, not a percentage-complete guess.
 
 **Handoff rule:** When a detail is not specified, choose the smallest implementation that preserves these invariants, record the choice in maintained code/docs and test externally visible behavior. If the choice changes an owner decision or product output semantics, obtain a decision rather than silently drifting. Routine module names, helper signatures and test organization do not require reopening the product design.
+
