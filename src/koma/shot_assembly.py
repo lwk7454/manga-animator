@@ -27,8 +27,19 @@ class AssemblyService:
     # ── inputs assembly ───────────────────────────────────────────────────
     def shot_inputs(self, series_id: str, shot_revision_id: str,
                     ratio: str) -> dict[str, Any]:
-        """Resolve accepted candidate + beat dialogue lines for one shot."""
+        """Resolve accepted candidate + beat dialogue lines for one shot.
+
+        ``series_id`` may be empty: it is then resolved from the shot row
+        (shot ids are unique across series), so web callers don't need it."""
         with self.db.transaction() as conn:
+            if not series_id:
+                r = conn.execute(
+                    "SELECT series_id FROM shot_plan_revisions WHERE id = ?",
+                    (shot_revision_id,),
+                ).fetchone()
+                if r is None:
+                    raise NotFound(f"shot revision {shot_revision_id!r}")
+                series_id = r["series_id"]
             cand = conn.execute(
                 "SELECT c.id AS candidate_id, c.artifact_id, a.relative_path,"
                 " a.sha256 FROM shot_candidates c"
