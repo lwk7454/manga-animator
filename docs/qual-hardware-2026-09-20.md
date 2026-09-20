@@ -37,13 +37,30 @@ point at `pretrained_models/` root, not the `gsv-v2final-pretrained/` subdir).
 - Subtitles written from the same timeline (jp + en) ✓
 - Deliverable: `data/demo/qual_e2e_assembly.mp4`
 
+## §G.4 — multi-reference leg (panel + character sheet)
+
+`r2v_compiler` built the 2-ref graph (`ref_image_0` = panel via node 137,
+`ref_image_1` = character sheet, tags `<Picture 1>`/`<Picture 2>`), submitted
+through the probe transport → **complete, 864×480, 124 f @ 24 fps**, mid-frame
+mean 140.9. Vision review: **B&W ink style held** (the color sheet did NOT
+bleed color at this prompt strength), identity consistent across frames,
+composition stable, no 2-ref artifacts. Deliverable:
+`data/demo/qual_multiref.mp4` + `qual_multiref_contact.png`.
+
+## §G.5 — 9:16 portrait leg
+
+`p006_04` panel at 480×864 → **complete in ~88 s**, 124 f @ 24 fps,
+mid-frame mean 151.4. Vision review: full body head-to-waist framing stable,
+identity consistent, visible mouth/eye motion, no anatomy drift.
+Deliverable: `data/demo/qual_portrait.mp4` + `qual_portrait_contact.png`.
+
 ## Verdict
 
 §G steps 1–3 **qualified on hardware**: R2V single-reference generation,
 TTS lane, and the full shot assembly chain all pass with honest,
-pixel-verified evidence. Remaining for full §G: multi-reference (2+
-identity refs) R2V and the 9:16 ratio leg, then §G steps 4–6 (three-case
-review matrix) during R6 use.
+pixel-verified evidence. Multi-reference and 9:16 legs also pass — both
+ratio canvases and the compiler's ref wiring are production-validated.
+Remaining for full §G: §G steps 4–6 (three-case review matrix) during R6 use.
 
 ## Local suite
 
