@@ -98,7 +98,7 @@ class R2VWorker:
                 " WHERE w.chapter_id = ? AND w.stage = 'motion' AND w.mode ="
                 " 'production' AND w.ratio IN"
                 " (" + ",".join("?" * len(ratios)) + ")"
-                " AND w.state IN ('ready','failed','blocked')"
+                " AND w.state IN ('ready','failed','blocked','active')"
                 " ORDER BY w.priority, w.id",
                 (chapter_id, *ratios),
             ).fetchall()
@@ -225,10 +225,19 @@ class R2VWorker:
     def reconcile_uncertain(self, attempt_id: str, epoch: str) -> ExecutionOutcome:
         """Find-or-hold for a submission_uncertain attempt: look for a unique
         matching prompt id in queue/history; record acceptance or stay held.
-        NEVER resubmits (the request may have landed)."""
+        NEVER resubmits (the request may have landed).
+
+        Fencing: the reconciler adopts the attempt first (epoch transfer) —
+        reconciliation is precisely the post-crash path; the old owner's
+        callbacks can no longer write (§9.1a)."""
         row = self._attempt(attempt_id)
         if row["state"] != "submission_uncertain":
             raise InvalidTransition(f"attempt in state {row['state']}")
+        if row["owner_epoch"] != epoch:
+            adopted = self.store.adopt_nonterminal_attempts(row["owner_epoch"], epoch)
+            if attempt_id not in adopted:
+                raise RevisionConflict(
+                    f"attempt {attempt_id} could not be adopted for reconciliation")
         found = self._reconcile_find(row)
         if found:
             self.store.record_remote_acceptance(
