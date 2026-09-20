@@ -584,5 +584,34 @@ def models_list() -> None:
         typer.echo(f"{p['id']:28s} {p['kind']:12s} {p['path']}")
 
 
+@app.command()
+def serve(
+    data_dir: Path = typer.Option(None, "--data-dir", help="Koma data root."),
+    host: str = typer.Option(
+        "127.0.0.1", help="Loopback by default; LAN needs explicit auth config."),
+    port: int = typer.Option(8642, help="Local web app port."),
+) -> None:
+    """Start the local web app: /api/v1 + UI on one origin (D17).
+
+    Read-only pages and approval edits stay available while generation runs;
+    the supervised worker acquires the execution lock only while executing.
+    """
+    import uvicorn
+
+    from .web.api import AppFactory
+
+    resolved = data_dir if data_dir is not None else _default_data_dir()
+    resolved = Path(resolved).resolve()
+    factory = AppFactory(resolved)
+    application = factory.build()
+    typer.echo(f"koma serving {resolved} at http://{host}:{port} (docs: /api/docs)")
+    uvicorn.run(application, host=host, port=port, log_level="info")
+
+
+def _default_data_dir() -> Path:
+    base = Path.home() / "koma-data"
+    return Path(base)
+
+
 if __name__ == "__main__":
     app()
