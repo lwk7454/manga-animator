@@ -71,6 +71,7 @@ class ShotStore:
         out = []
         for row in rows:
             d = dict(row)
+            d["beat_id"] = d["id"]
             for key in ("source_panel_ids", "participants", "dialogue_line_ids", "allowed_motion"):
                 d[key] = json.loads(d[key])
             out.append(d)
