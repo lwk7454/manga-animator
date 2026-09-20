@@ -8,9 +8,10 @@ drops overflow — the caller must split the shot or hold for review.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
-MAX_REF_IMAGES = 9          # installed schema: ref_images max 9
+MAX_REF_IMAGES = 9  # installed schema: ref_images max 9
 MAX_REF_VIDEOS = 3
 MAX_REF_AUDIOS = 3
 
@@ -31,47 +32,59 @@ def build_reference_manifest(
     stable (asset_id, revision) order, then objects, then backgrounds.
 
     Each entry: {slot_key, prompt_tag, role, entity, artifact_id, sha256}.
-    prompt_tag is ONE-BASED per the installed validator (<Picture 1> is the
-    edit_image; refs start at <Picture 2>).
+    prompt_tag is ONE-BASED; Picture 1 is the first panel reference.
     """
     # Direct-panel route (D14): the panel is the FIRST REFERENCE
     # (ref_image_0, prompt tag <Picture 1>) — no edit_image slot. The panel
     # is a soft story/composition reference, not a locked first frame.
-    manifest: list[dict[str, Any]] = [{
-        "slot_key": "ref_image_0",
-        "prompt_tag": "<Picture 1>",
-        "role": "story_composition",
-        "entity": None,
-        "artifact_id": panel_artifact_id,
-        "sha256": panel_sha256,
-    }]
+    manifest: list[dict[str, Any]] = [
+        {
+            "slot_key": "ref_image_0",
+            "prompt_tag": "<Picture 1>",
+            "role": "story_composition",
+            "entity": None,
+            "artifact_id": panel_artifact_id,
+            "sha256": panel_sha256,
+        }
+    ]
     ordered: list[tuple[str, str, dict[str, Any]]] = []
-    for role, bindings in (("character", character_bindings),
-                           ("object", object_bindings or []),
-                           ("background", background_bindings or [])):
+    for role, bindings in (
+        ("character", character_bindings),
+        ("object", object_bindings or []),
+        ("background", background_bindings or []),
+    ):
         for b in sorted(bindings, key=lambda x: (x["asset_id"], x["asset_revision"])):
             ordered.append((role, f"{b['asset_id']}", b))
     for role, entity, b in ordered:
         if len(manifest) >= MAX_REF_IMAGES:
             raise ReferenceManifestError(
                 f"reference capacity exceeded ({MAX_REF_IMAGES} refs max): "
-                "split the shot or reduce bound entities — references are never dropped")
-        manifest.append({
-            "slot_key": f"ref_image_{len(manifest)}",
-            "prompt_tag": f"<Picture {len(manifest) + 1}>",
-            "role": f"{role}_identity",
-            "entity": entity,
-            "artifact_id": b["artifact_id"],
-            "sha256": b["sha256"],
-            "asset_revision": b["asset_revision"],
-        })
+                "split the shot or reduce bound entities — references are never dropped"
+            )
+        manifest.append(
+            {
+                "slot_key": f"ref_image_{len(manifest)}",
+                "prompt_tag": f"<Picture {len(manifest) + 1}>",
+                "role": f"{role}_identity",
+                "entity": entity,
+                "artifact_id": b["artifact_id"],
+                "sha256": b["sha256"],
+                "asset_revision": b["asset_revision"],
+            }
+        )
     return manifest
 
 
 def validate_manifest_against_capacity(manifest: list[dict[str, Any]]) -> None:
+    if not manifest or manifest[0].get("role") != "story_composition":
+        raise ReferenceManifestError("first reference must be the story composition")
+    if sum(m.get("role") == "story_composition" for m in manifest) != 1:
+        raise ReferenceManifestError("exactly one story composition required")
+    for i, m in enumerate(manifest):
+        if m.get("slot_key") != f"ref_image_{i}" or m.get("prompt_tag") != f"<Picture {i + 1}>":
+            raise ReferenceManifestError("reference slot/tag order mismatch")
     if len(manifest) > MAX_REF_IMAGES:
-        raise ReferenceManifestError(
-            f"{len(manifest)} refs > capacity {MAX_REF_IMAGES}")
+        raise ReferenceManifestError(f"{len(manifest)} refs > capacity {MAX_REF_IMAGES}")
     slots = [m["slot_key"] for m in manifest]
     if len(slots) != len(set(slots)):
         raise ReferenceManifestError("duplicate slot keys in manifest")
@@ -88,7 +101,11 @@ def compile_prompt_with_tags(base_prompt: str, manifest: list[dict[str, Any]]) -
         if tag not in base_prompt:
             raise ReferenceManifestError(
                 f"prompt missing {tag} ({m['role']}) — installed node validates "
-                "strict prompt tags and would reject this generation")
+                "strict prompt tags and would reject this generation"
+            )
+    expected = {m["prompt_tag"] for m in manifest}
+    if set(re.findall(r"<Picture \d+>", base_prompt)) != expected:
+        raise ReferenceManifestError("prompt contains an unconnected picture tag")
     return base_prompt
 
 

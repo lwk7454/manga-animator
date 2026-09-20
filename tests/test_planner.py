@@ -27,10 +27,12 @@ def shots(tmp_path: Path) -> tuple[ShotStore, str, str]:
             "INSERT INTO series (id, slug, revision, required_ratios,"
             " subtitle_languages, created_at, updated_at)"
             " VALUES ('ser1', 'demo', 1, '[\"16:9\",\"9:16\"]',"
-            " '[\"en\"]', datetime('now'), datetime('now'))")
+            " '[\"en\"]', datetime('now'), datetime('now'))"
+        )
         conn.execute(
             "INSERT INTO chapters (id, series_id, number, revision, created_at,"
-            " updated_at) VALUES ('ch1', 'ser1', 1, 1, datetime('now'), datetime('now'))")
+            " updated_at) VALUES ('ch1', 'ser1', 1, 1, datetime('now'), datetime('now'))"
+        )
     return ShotStore(db), "ser1", "ch1"
 
 
@@ -54,8 +56,12 @@ def test_beats_from_script_dialogue_only(shots):
 def test_shots_dialogue_own_shot_non_dialogue_groups(shots):
     store, sid, ch = shots
     panels = [{"panel_id": f"p{i}"} for i in (1, 2, 3, 4)]
-    script = {"p1": {}, "p2": {"dialogue": [{"jp": "あ"}]},
-          "p3": {}, "p4": {"dialogue": [{"jp": "い"}]}}
+    script = {
+        "p1": {},
+        "p2": {"dialogue": [{"jp": "あ"}]},
+        "p3": {},
+        "p4": {"dialogue": [{"jp": "い"}]},
+    }
     beats = propose_beats_from_script(ch, sid, 1, panels, script, store)
     proposed = propose_shots_from_beats(sid, ch, beats, store)
     # b1 (no dialogue) groups alone (max 1), b2 dialogue own shot, b3 alone, b4 own
@@ -89,32 +95,31 @@ def test_coverage_after_planning(shots):
     script = {"p1": {"dialogue": [{"jp": "a"}]}, "p2": {"dialogue": [{"jp": "b"}]}}
     beats = propose_beats_from_script(ch, sid, 1, panels, script, store)
     proposed = propose_shots_from_beats(sid, ch, beats, store)
-    coverage = store.validate_coverage(
-        ch, 1, [p["shot_revision_id"] for p in proposed])
+    coverage = store.validate_coverage(ch, 1, [p["shot_revision_id"] for p in proposed])
     assert coverage["valid"]
     assert coverage["beats_covered"] == 2
 
 
 def test_invented_events_rejected(shots):
     store, sid, ch = shots
-    beats = propose_beats_from_script(ch, sid, 1,
-                                      [{"panel_id": "p1"}], {"p1": {}}, store)
+    beats = propose_beats_from_script(ch, sid, 1, [{"panel_id": "p1"}], {"p1": {}}, store)
     from koma.planner import PlanProposalError
+
     with pytest.raises(PlanProposalError):
         validate_no_invented_events(
             store.beats_for_plan(ch, 1),
-            [{"beat_coverage": ["beat:nonexistent",
-                                beats[0]["beat_id"]]}])
+            [{"beat_coverage": ["beat:nonexistent", beats[0]["beat_id"]]}],
+        )
 
 
 def test_ratio_specs_both_orientations(shots):
     store, sid, ch = shots
     b = store.add_beat(sid, ch, 1, beat_index=1, source_panel_ids=["p1"])
-    s1 = store.add_shot_revision(sid, ch, beat_coverage=[b["beat_id"]],
-                                 source_panel_ids=["p1"])
+    s1 = store.add_shot_revision(sid, ch, beat_coverage=[b["beat_id"]], source_panel_ids=["p1"])
     for ratio, (w, h) in DEFAULT_GRIDS.items():
-        spec = spec_ratios_for_shot(store, s1["shot_revision_id"], ratio,
-                                    source_panel_size=(457, 452), profile="p")
+        spec = spec_ratios_for_shot(
+            store, s1["shot_revision_id"], ratio, source_panel_size=(457, 452), profile="p"
+        )
         assert spec["ratio"] == ratio
         got = store.get_ratio_spec(s1["shot_revision_id"], ratio)
         assert (got["target_width"], got["target_height"]) == (w, h)
@@ -130,5 +135,19 @@ def test_duplicate_beat_index_rejected(shots):
     store, sid, ch = shots
     store.add_beat(sid, ch, 1, beat_index=1, source_panel_ids=["p1"])
     from koma.storage.errors import InvalidTransition
+
     with pytest.raises(InvalidTransition):
         store.add_beat(sid, ch, 1, beat_index=1, source_panel_ids=["p2"])
+
+
+def test_existing_script_line_identity_is_preserved(shots):
+    store, sid, chapter = shots
+    propose_beats_from_script(
+        chapter,
+        sid,
+        1,
+        [{"panel_id": "p1"}],
+        {"p1": {"ocr": {"lines": [{"line_id": "ln:p1:7", "source_text": "hello"}]}}},
+        store,
+    )
+    assert store.beats_for_plan(chapter, 1)[0]["dialogue_line_ids"] == ["ln:p1:7"]

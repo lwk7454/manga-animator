@@ -15,8 +15,10 @@ def _tl():
 
 
 def _lines():
-    return {"ln:p1:0": {"jp": "きゃっ、こんなの初めて…。", "en": "Ah, this is my first time…"},
-            "ln:p1:1": {"jp": "んっ…。", "en": "Mmm…"}}
+    return {
+        "ln:p1:0": {"jp": "きゃっ、こんなの初めて…。", "en": "Ah, this is my first time…"},
+        "ln:p1:1": {"jp": "んっ…。", "en": "Mmm…"},
+    }
 
 
 def test_srt_times_come_from_measured_timeline():
@@ -56,12 +58,23 @@ def test_write_subtitles_creates_tracks(tmp_path: Path):
 def test_write_skips_empty_language(tmp_path: Path):
     jp_only = {"ln:p1:0": {"jp": "一"}}
     tl = [{"line_id": "ln:p1:0", "start": 0.0, "seconds": 1.0}]
-    paths = write_subtitles(tl, jp_only, tmp_path)
+    paths = write_subtitles(tl, jp_only, tmp_path, languages=("jp",))
     assert [p.name for p in paths] == ["subtitles_jp.srt"]
 
 
 def test_timestamp_rollover_format():
     # >1 hour, >1s rounding — formatting stays HH:MM:SS,mmm
-    srt = build_srt([{"line_id": "l1", "start": 3661.5, "seconds": 0.5}],
-                    {"l1": {"jp": "x"}}, language="jp")
+    srt = build_srt(
+        [{"line_id": "l1", "start": 3661.5, "seconds": 0.5}], {"l1": {"jp": "x"}}, language="jp"
+    )
     assert "01:01:01,500 --> 01:01:02,000" in srt
+
+
+def test_required_translation_blocks_all_track_writes(tmp_path):
+    import pytest
+
+    from koma.storage.errors import BlockedPrerequisite
+
+    with pytest.raises(BlockedPrerequisite, match="required zh"):
+        write_subtitles(_tl(), _lines(), tmp_path, languages=("jp", "en", "zh"))
+    assert list(tmp_path.iterdir()) == []

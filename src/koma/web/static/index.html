@@ -35,15 +35,17 @@
 <main>
   <section>
     <h2>Assets — approval gate</h2>
-    <div id="assets"></div>
+    <label>Series <input id="seriesId" value="ser1"></label><div id="assets"></div>
     <div class="row"><button onclick="loadAssets()">refresh</button></div>
   </section>
   <section>
     <h2>Runs</h2>
-    <div class="row"><input id="chapterId" placeholder="chapter id" value="ch1" style="width:180px"><button onclick="enqueueRun()">enqueue 16:9 motion</button></div>
+    <div class="row"><input id="chapterId" placeholder="chapter id" value="ch1" style="width:180px"><button onclick="enqueueRun()">enqueue both ratios</button></div>
     <div id="runs" class="muted">no runs yet</div>
     <h2 style="margin-top:14px">Assembly</h2>
-    <div class="row"><input id="shotId" placeholder="shot revision id" style="width:180px"><input id="refAudio" placeholder="ref audio path" style="width:220px"><button onclick="assemble()">assemble</button></div>
+    <div class="row"><input id="shotId" placeholder="shot revision id" style="width:180px"><input id="refAudio" placeholder="ref audio path" style="width:220px"><select id="assemblyRatio"><option>16:9</option><option>9:16</option></select><button onclick="assemble()">assemble preview</button></div>
+    <label>Dialogue and required translations by line ID<textarea id="lines" rows="5" placeholder='{"ln:panel:0":{"jp":"...","en":"...","zh":"..."}}'></textarea></label>
+    <label><input type="checkbox" id="previewConsent">Create a preview using this reference voice; not a production export</label>
     <div id="assembly" class="muted"></div>
     <div id="err" class="err"></div>
   </section>
@@ -62,45 +64,69 @@ async function boot() {
   await loadAssets();
 }
 async function loadAssets() {
-  const data = await api('GET', `/api/v1/series/${S.series}/assets`);
-  const el = document.getElementById('assets'); el.innerHTML = '';
-  for (const a of data.assets) {
-    const rev = a.active_revision || 0;
-    const state = a.approval ? a.approval.state : 'none';
-    const div = document.createElement('div'); div.className = 'card';
-    div.innerHTML = `<div class="row"><strong>${a.name}</strong>
-      <span class="pill ${state}">${state}</span><span class="muted">rev ${rev}</span></div>
-      <div class="row" style="margin-top:6px">
-        <button class="approve" onclick="approve('${a.id}',${rev})">approve r${rev}</button>
-        <button class="reject" onclick="reject('${a.id}',${rev})">reject</button>
-      </div>
-      <div class="muted">${a.id}</div>`;
-    el.appendChild(div);
-  }
+  try {
+    S.series = document.getElementById('seriesId').value.trim();
+    const data = await api('GET', `/api/v1/series/${encodeURIComponent(S.series)}/assets`);
+    const el = document.getElementById('assets'); el.replaceChildren();
+    for (const a of data.assets) {
+      const rev = a.active_revision || 0;
+      const state = a.approval ? a.approval.state : 'none';
+      const div = document.createElement('div'); div.className = 'card';
+      const title = document.createElement('strong');
+      title.textContent = `${a.display_name} — ${state}, revision ${rev}`; div.appendChild(title);
+      for (const id of a.active_artifact_ids || []) {
+        const img = document.createElement('img'); img.className = 'thumb';
+        img.src = `/api/v1/artifacts/${encodeURIComponent(id)}`;
+        img.alt = `Reference for ${a.display_name}`; div.appendChild(img);
+      }
+      const details = document.createElement('pre');
+      details.textContent = JSON.stringify(a.active_payload || {}, null, 2); div.appendChild(details);
+      for (const [label, handler] of [['approve', approve], ['reject', reject]]) {
+        const button = document.createElement('button'); button.textContent = label;
+        button.disabled = !rev || state !== 'awaiting_review';
+        button.addEventListener('click', () => handler(a.id, rev)); div.appendChild(button);
+      }
+      el.appendChild(div);
+    }
+  } catch (e) { document.getElementById('err').textContent = e.message; }
 }
 async function approve(id, rev) {
-  try { await api('POST', `/api/v1/assets/${id}/approve`, { revision: rev, approved_by: 'ui', expected_asset_revision: rev }); loadAssets(); }
+  try { await api('POST', `/api/v1/assets/${encodeURIComponent(id)}/approve`, { revision: rev, approved_by: 'ui', expected_asset_revision: rev }); loadAssets(); }
   catch (e) { document.getElementById('err').textContent = e.message; }
 }
 async function reject(id, rev) {
-  try { await api('POST', `/api/v1/assets/${id}/reject`, { revision: rev, note: 'rejected in ui' }); loadAssets(); }
+  try { await api('POST', `/api/v1/assets/${encodeURIComponent(id)}/reject`, { revision: rev, note: 'rejected in ui' }); loadAssets(); }
   catch (e) { document.getElementById('err').textContent = e.message; }
 }
 async function enqueueRun() {
   try {
-    const res = await api('POST', '/api/v1/runs', { chapter_id: document.getElementById('chapterId').value, ratios: ['16:9'] });
-    document.getElementById('runs').innerHTML = res.enqueued.map(x => `<div class="card">${x.work_id}: <span class="pill ${x.status}">${x.status}</span></div>`).join('');
+    const res = await api('POST', '/api/v1/runs', {chapter_id: document.getElementById('chapterId').value, ratios: ['16:9', '9:16']});
+    document.getElementById('runs').textContent = JSON.stringify(res, null, 2);
   } catch (e) { document.getElementById('err').textContent = e.message; }
 }
 async function assemble() {
   try {
-    const res = await api('POST', `/api/v1/shots/${document.getElementById('shotId').value}/assemble`,
-      { ratio: '16:9', lines: {}, ref_audio_path: document.getElementById('refAudio').value, prompt_text: '' });
-    document.getElementById('assembly').innerHTML = `<span class="pill ${res.status}">${res.status}</span>`;
+    if (!document.getElementById('previewConsent').checked) throw new Error('Confirm the explicit preview option first.');
+    const shot = encodeURIComponent(document.getElementById('shotId').value);
+    const ratio = document.getElementById('assemblyRatio').value;
+    const lines = JSON.parse(document.getElementById('lines').value);
+    const res = await api('POST', `/api/v1/shots/${shot}/assemble`,
+      {ratio, preview: true, lines, ref_audio_path: document.getElementById('refAudio').value, prompt_text: ''});
+    document.getElementById('assembly').textContent = JSON.stringify(res, null, 2);
+    if (['started', 'already_running'].includes(res.status)) {
+      const poll = async () => {
+        try {
+          const state = await api('GET', `/api/v1/shots/${shot}/assemble/status?ratio=${encodeURIComponent(ratio)}`);
+          document.getElementById('assembly').textContent = JSON.stringify(state, null, 2);
+          if (state.status === 'running') setTimeout(poll, 1500);
+        } catch(e) { document.getElementById('err').textContent = e.message; }
+      };
+      setTimeout(poll, 500);
+    }
   } catch (e) { document.getElementById('err').textContent = e.message; }
 }
 setInterval(() => { document.getElementById('status').textContent = 'csrf ' + (S.csrf ? 'ok' : '—'); }, 2000);
-boot();
+boot().catch(e => { document.getElementById('err').textContent = e.message; });
 </script>
 </body>
 </html>

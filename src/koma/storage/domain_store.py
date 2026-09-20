@@ -1004,8 +1004,7 @@ class KomaStore:
                 raise NotFound(f"attempt {attempt_id!r}")
             if attempt["owner_epoch"] != owner_epoch:
                 raise RevisionConflict("attempt owner epoch mismatch (fencing)")
-            work = self._one(conn, "SELECT * FROM work_items WHERE id = ?",
-                             (attempt["work_id"],))
+            work = self._one(conn, "SELECT * FROM work_items WHERE id = ?", (attempt["work_id"],))
             if work is None:
                 raise NotFound("work for attempt")
             if work["input_fingerprint"] != expected_fingerprint:
@@ -1015,6 +1014,13 @@ class KomaStore:
                 )
             if work["state"] not in ("active", "succeeded"):
                 raise InvalidTransition(f"work in state {work['state']} cannot promote")
+            spec = json.loads(work["desired_spec"])
+            if spec.get("shot_revision_id"):
+                from .shot_store import ShotStore
+
+                ShotStore(self.db).require_production_ready(
+                    spec["shot_revision_id"], work["ratio"], conn=conn
+                )
             artifact_ids: list[str] = []
             for art in validated_artifacts:
                 aid = new_id()
@@ -1026,12 +1032,20 @@ class KomaStore:
                     " validation_status, created_at)"
                     " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'validated', ?)",
                     (
-                        aid, work["series_id"], work["scope_key"],
-                        art["kind"], work["mode"], attempt_id,
+                        aid,
+                        work["series_id"],
+                        work["scope_key"],
+                        art["kind"],
+                        work["mode"],
+                        attempt_id,
                         art.get("deterministic_operation_id"),
-                        art["relative_path"], art["sha256"], int(art["size"]),
-                        work["input_fingerprint"], _dumps(art.get("media_metadata", {})),
-                        _dumps(art.get("result_metadata", {})), now,
+                        art["relative_path"],
+                        art["sha256"],
+                        int(art["size"]),
+                        work["input_fingerprint"],
+                        _dumps(art.get("media_metadata", {})),
+                        _dumps(art.get("result_metadata", {})),
+                        now,
                     ),
                 )
                 for dep in art.get("dependencies", []):
@@ -1049,11 +1063,29 @@ class KomaStore:
                     " input_fingerprint = excluded.input_fingerprint,"
                     " updated_at = excluded.updated_at",
                     (
-                        work["scope_key"], work["stage"], work["ratio"], work["mode"],
-                        art.get("output_role", art["kind"]), aid,
-                        work["input_fingerprint"], now,
+                        work["scope_key"],
+                        work["stage"],
+                        work["ratio"],
+                        work["mode"],
+                        art.get("output_role", art["kind"]),
+                        aid,
+                        work["input_fingerprint"],
+                        now,
                     ),
                 )
+            if spec.get("shot_revision_id"):
+                from ..motion_review import MotionReviewService
+
+                for aid, art in zip(artifact_ids, validated_artifacts, strict=True):
+                    if art["kind"] == "motion":
+                        MotionReviewService(self.db).register_candidate(
+                            shot_revision_id=spec["shot_revision_id"],
+                            series_id=work["series_id"],
+                            ratio=work["ratio"],
+                            artifact_id=aid,
+                            input_fingerprint=work["input_fingerprint"],
+                            conn=conn,
+                        )
             # attempt terminal success + work success, one transaction
             conn.execute(
                 "UPDATE attempts SET state = 'succeeded', completed_at = ?, updated_at = ?"
@@ -1065,8 +1097,11 @@ class KomaStore:
                 " updated_at = ? WHERE id = ?",
                 (now, work["id"]),
             )
-            return {"artifact_ids": artifact_ids, "work_id": work["id"],
-                    "input_fingerprint": work["input_fingerprint"]}
+            return {
+                "artifact_ids": artifact_ids,
+                "work_id": work["id"],
+                "input_fingerprint": work["input_fingerprint"],
+            }
 
     def current_output(
         self, scope_key: str, stage: str, ratio: str = "", mode: str = "production",
@@ -1383,3 +1418,4 @@ def _first(bindings: list[dict], key: str) -> Any:
 
 
 __all__ = ["KomaStore"]
+

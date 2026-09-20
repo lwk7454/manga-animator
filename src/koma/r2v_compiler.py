@@ -13,7 +13,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .adapters.reference_manifest import ReferenceManifestError, validate_manifest_against_capacity
+from .adapters.reference_manifest import (
+    ReferenceManifestError,
+    compile_prompt_with_tags,
+    validate_manifest_against_capacity,
+)
 from .r2v_probe import digest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,6 +29,8 @@ class CompilerError(RuntimeError):
 
 
 def load_base_graph(variant: str = "turbo4") -> dict[str, Any]:
+    if variant not in {"turbo4", "baseline20"}:
+        raise CompilerError("unsupported workflow variant")
     path = WORKFLOW_DIR / f"minimax_h3_panel_r2v_{variant}.api.json"
     if not path.is_file():
         raise CompilerError(f"missing base workflow {path}")
@@ -47,13 +53,21 @@ def compile_shot_graph(
 
     ``upload_names`` maps artifact_id → uploaded ComfyUI input filename
     (uploads happen before compile; the caller owns transport).
-    The panel occupies slot ``edit_image``; each manifest ref becomes
-    ``ref_images.ref_image_<n>`` (zero-based socket, one-based prompt tag —
-    the pairing verified live by the qualified probe).
+    The panel is ref_images.ref_image_0, followed by identity references.
+    API dynamic sockets are flat dotted keys, as in the qualified probe.
     """
     graph = load_base_graph(variant)
     validate_manifest_against_capacity(reference_manifest)
-    digest(panel_path)  # exists + readable
+    if digest(panel_path) != reference_manifest[0]["sha256"]:
+        raise CompilerError("panel digest differs from frozen reference manifest")
+    compile_prompt_with_tags(prompt, reference_manifest)
+    if width <= 0 or height <= 0 or width % 32 or height % 32:
+        raise CompilerError("canvas must use positive multiples of 32")
+    if not 124 <= frames <= 362 or (frames - 5) % 17:
+        raise CompilerError("unsupported H3 frame count")
+    for m in reference_manifest:
+        if not upload_names.get(m["artifact_id"]):
+            raise CompilerError(f"reference not uploaded: {m['artifact_id']}")
 
     # The qualified direct-panel graph wires the PANEL as ref_image_0
     # (prompt tag <Picture 1>): the panel is the first reference, composition
@@ -80,10 +94,12 @@ def compile_shot_graph(
         }
         ref_inputs[f"ref_image_{slot}"] = [node_key, 0]
         slot += 1
-    graph["136"]["inputs"]["ref_images"] = ref_inputs
+    for key in list(graph["136"]["inputs"]):
+        if key == "ref_images" or key.startswith("ref_images."):
+            del graph["136"]["inputs"][key]
+    graph["136"]["inputs"].update({f"ref_images.{key}": value for key, value in ref_inputs.items()})
 
-    graph["136"]["inputs"].update(prompt=prompt, width=width, height=height,
-                                  length=frames)
+    graph["136"]["inputs"].update(prompt=prompt, width=width, height=height, length=frames)
     graph["129"]["inputs"]["noise_seed"] = seed
     return graph
 
@@ -99,21 +115,34 @@ def reference_upload_plan(manifest: list[dict[str, Any]], panel_path: Path) -> l
     """Ordered upload plan: (local_path, upload_name) with unique names."""
     plan = []
     seen_names: set[str] = set()
+    seen_artifacts: set[str] = set()
     for m in manifest:
         artifact = m["artifact_id"]
-        name = f"koma_{artifact.replace(':', '_')}.png"
-        if name in seen_names:
+        from .util import canonical_hash
+
+        name = f"koma_{canonical_hash([artifact, m['sha256']])}.png"
+        if name in seen_names or artifact in seen_artifacts:
             raise CompilerError(f"duplicate upload name {name}")
         seen_names.add(name)
-        plan.append({
-            "artifact_id": m["artifact_id"],
-            "upload_name": name,
-            "role": m["role"],
-            "is_panel": m["slot_key"] == "edit_image",
-        })
+        seen_artifacts.add(artifact)
+        plan.append(
+            {
+                "artifact_id": m["artifact_id"],
+                "upload_name": name,
+                "role": m["role"],
+                "is_panel": m["role"] == "story_composition",
+                "sha256": m["sha256"],
+                "local_path": str(panel_path) if m["role"] == "story_composition" else None,
+            }
+        )
     _ = panel_path  # panel path validated by digest in compile
     return plan
 
 
-__all__ = ["CompilerError", "compile_shot_graph", "load_base_graph",
-           "panel_artifact_key", "reference_upload_plan"]
+__all__ = [
+    "CompilerError",
+    "compile_shot_graph",
+    "load_base_graph",
+    "panel_artifact_key",
+    "reference_upload_plan",
+]

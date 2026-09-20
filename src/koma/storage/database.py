@@ -28,7 +28,7 @@ from ..log import get_logger
 
 log = get_logger("storage.database")
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DB_NAME = "koma.sqlite3"
 _BUSY_TIMEOUT_MS = 5000
 
@@ -497,7 +497,6 @@ CREATE TABLE IF NOT EXISTS run_plans (
 """
 
 
-
 # ── v3 migration (R1.1): allow NULL asset_id for unknown/ambiguous bindings ──
 _MIGRATION_V3 = """
 CREATE TABLE IF NOT EXISTS asset_occurrence_bindings_new (
@@ -537,7 +536,9 @@ class Database:
     # ── connection policy ────────────────────────────────────────────────────
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(
-            self.path, timeout=10.0, check_same_thread=True  # one connection per thread
+            self.path,
+            timeout=10.0,
+            check_same_thread=True,  # one connection per thread
         )
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
@@ -581,7 +582,7 @@ class Database:
         fresh = not self.path.exists()
         conn = self.connection()
         try:
-            conn.execute("BEGIN")
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
             tables = {r[0] for r in row}
             version = 0
@@ -598,11 +599,13 @@ class Database:
                     f"unrecognized nonempty store at {self.path} — "
                     "refusing to initialize over unknown data; move it aside or delete it manually"
                 )
-            if version >= SCHEMA_VERSION:
+            if version > SCHEMA_VERSION:
+                raise RuntimeError(f"unsupported future schema version {version}")
+            if version == SCHEMA_VERSION:
                 conn.rollback()
                 return
             if version < 1:
-                conn.executescript(_SCHEMA_V1)
+                self._execute_migration(conn, _SCHEMA_V1)
                 conn.execute(
                     "INSERT INTO schema_migrations (version, applied_at)"
                     " VALUES (?, datetime('now'))",
@@ -610,7 +613,7 @@ class Database:
                 )
                 version = 1
             if version < 2:
-                conn.executescript(_MIGRATION_V2)
+                self._execute_migration(conn, _MIGRATION_V2)
                 conn.execute(
                     "INSERT INTO schema_migrations (version, applied_at)"
                     " VALUES (?, datetime('now'))",
@@ -619,13 +622,18 @@ class Database:
                 version = 2
             if version < 3:
                 # v2 stores created asset_id NOT NULL; rebuild nullable (R1.1).
-                conn.executescript(_MIGRATION_V3)
+                self._execute_migration(conn, _MIGRATION_V3)
                 conn.execute(
                     "INSERT INTO schema_migrations (version, applied_at)"
                     " VALUES (?, datetime('now'))",
                     (3,),
                 )
                 version = 3
+            if version < 4:
+                conn.execute(
+                    "ALTER TABLE shot_candidates ADD COLUMN revision INTEGER NOT NULL DEFAULT 1"
+                )
+                conn.execute("INSERT INTO schema_migrations VALUES (4, datetime('now'))")
             conn.commit()
         except BaseException:
             try:
@@ -636,11 +644,25 @@ class Database:
         if fresh:
             log.info("created schema v%d at %s", SCHEMA_VERSION, self.path)
 
+    @staticmethod
+    def _execute_migration(conn, script: str) -> None:
+        # executescript implicitly COMMITs and would break atomic migrations.
+        statement = ""
+        for line in script.splitlines(keepends=True):
+            statement += line
+            if sqlite3.complete_statement(statement):
+                conn.execute(statement)
+                statement = ""
+        if statement.strip():
+            conn.execute(statement)
+
     def schema_version(self) -> int:
         try:
-            row = self.connection().execute(
-                "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"
-            ).fetchone()
+            row = (
+                self.connection()
+                .execute("SELECT COALESCE(MAX(version), 0) FROM schema_migrations")
+                .fetchone()
+            )
         except sqlite3.OperationalError:
             return 0
         return int(row[0]) if row else 0
@@ -653,9 +675,9 @@ class Database:
 
     # ── kv helpers (op tokens, lightweight flags — NOT a second domain store) ──
     def kv_get(self, key: str) -> str | None:
-        row = self.connection().execute(
-            "SELECT value FROM kv_meta WHERE key = ?", (key,)
-        ).fetchone()
+        row = (
+            self.connection().execute("SELECT value FROM kv_meta WHERE key = ?", (key,)).fetchone()
+        )
         return row[0] if row else None
 
     def kv_set(self, key: str, value: str) -> None:

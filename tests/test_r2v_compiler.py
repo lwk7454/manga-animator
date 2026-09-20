@@ -16,6 +16,7 @@ from koma.r2v_compiler import (
     panel_artifact_key,
     reference_upload_plan,
 )
+from koma.r2v_probe import digest
 
 
 @pytest.fixture()
@@ -27,10 +28,18 @@ def panel(tmp_path: Path) -> Path:
 
 def _m(slot=None, n=1):
     m = build_reference_manifest(
-        panel_artifact_id="art:panel", panel_sha256="sha:panel",
-        character_bindings=[{"asset_id": f"asset:{i}", "asset_revision": 1,
-                             "artifact_id": f"art:c{i}", "sha256": f"sha:c{i}"}
-                            for i in range(n)])
+        panel_artifact_id="art:panel",
+        panel_sha256="sha:panel",
+        character_bindings=[
+            {
+                "asset_id": f"asset:{i}",
+                "asset_revision": 1,
+                "artifact_id": f"art:c{i}",
+                "sha256": f"sha:c{i}",
+            }
+            for i in range(n)
+        ],
+    )
     return m
 
 
@@ -45,18 +54,23 @@ def test_compile_wires_panel_and_refs(tmp_path: Path):
     panel = tmp_path / "panel.png"
     panel.write_bytes(b"\x89PNG\r\n\x1a\n" + b"1" * 32)
     manifest = _m(n=2)
-    uploads = {"art:panel": "koma_panel.png", "art:c0": "koma_c0.png",
-               "art:c1": "koma_c1.png"}
+    manifest[0]["sha256"] = digest(panel)
+    uploads = {"art:panel": "koma_panel.png", "art:c0": "koma_c0.png", "art:c1": "koma_c1.png"}
     graph = compile_shot_graph(
-        variant="turbo4", panel_path=panel, reference_manifest=manifest,
+        variant="turbo4",
+        panel_path=panel,
+        reference_manifest=manifest,
         prompt="Use <Picture 1> for composition and <Picture 2> and <Picture 3> for identity.",
-        width=864, height=480, frames=124, seed=42, upload_names=uploads)
+        width=864,
+        height=480,
+        frames=124,
+        seed=42,
+        upload_names=uploads,
+    )
     assert graph["137"]["inputs"]["image"] == "koma_panel.png"
-    assert graph["136"]["inputs"]["ref_images"] == {
-        "ref_image_0": ["137", 0],
-        "ref_image_1": ["Lref_image_1", 0],
-        "ref_image_2": ["Lref_image_2", 0],
-    }
+    assert "ref_images" not in graph["136"]["inputs"]
+    for i, node in enumerate(["137", "Lref_image_1", "Lref_image_2"]):
+        assert graph["136"]["inputs"][f"ref_images.ref_image_{i}"] == [node, 0]
     assert graph["136"]["inputs"]["width"] == 864
     assert graph["136"]["inputs"]["length"] == 124
     assert graph["129"]["inputs"]["noise_seed"] == 42
@@ -69,28 +83,47 @@ def test_compile_rejects_unuploaded_panel(tmp_path: Path):
     panel = tmp_path / "panel.png"
     panel.write_bytes(b"\x89PNG\r\n\x1a\n" + b"1" * 32)
     with pytest.raises(CompilerError) as ei:
-        compile_shot_graph(variant="turbo4", panel_path=panel,
-                           reference_manifest=_m(n=1), prompt="<Picture 1> move",
-                           width=864, height=480, frames=124, seed=1,
-                           upload_names={})
-    assert "panel not uploaded" in str(ei.value)
+        compile_shot_graph(
+            variant="turbo4",
+            panel_path=panel,
+            reference_manifest=[{**m, "sha256": digest(panel)} for m in _m(n=1)],
+            prompt="<Picture 1> <Picture 2> move",
+            width=864,
+            height=480,
+            frames=124,
+            seed=1,
+            upload_names={},
+        )
+    assert "not uploaded" in str(ei.value)
 
 
 def test_upload_plan_unique_and_ordered():
     panel = Path("/tmp/whatever.png")
     m = build_reference_manifest(
-        panel_artifact_id="art:panel", panel_sha256="sha:p",
+        panel_artifact_id="art:panel",
+        panel_sha256="sha:p",
         character_bindings=[_b("asset:c", 1)],
-        object_bindings=[{"asset_id": "asset:o", "asset_revision": 1,
-                          "artifact_id": "art:panel", "sha256": "sha:1"}])
+        object_bindings=[
+            {
+                "asset_id": "asset:o",
+                "asset_revision": 1,
+                "artifact_id": "art:panel",
+                "sha256": "sha:1",
+            }
+        ],
+    )
     # two entries sharing artifact id -> duplicate upload name error
     with pytest.raises(CompilerError):
         reference_upload_plan(m, panel)
 
 
 def _b(asset_id, revision, artifact="art:1", sha="sha:1"):
-    return {"asset_id": asset_id, "asset_revision": revision,
-            "artifact_id": artifact, "sha256": sha}
+    return {
+        "asset_id": asset_id,
+        "asset_revision": revision,
+        "artifact_id": artifact,
+        "sha256": sha,
+    }
 
 
 def test_capacity_respected_through_compile(tmp_path: Path):
@@ -98,19 +131,29 @@ def test_capacity_respected_through_compile(tmp_path: Path):
     panel.write_bytes(b"\x89PNG\r\n\x1a\n" + b"2" * 32)
     uploads = {"art:panel": "panel.png"}
     manifest = build_reference_manifest(
-        panel_artifact_id="art:panel", panel_sha256="sha:panel",
-        character_bindings=[_b(f"asset:{i}", 1, f"art:c{i}", f"sha:{i}")
-                            for i in range(8)])  # panel + 8 = 9 capacity
+        panel_artifact_id="art:panel",
+        panel_sha256="sha:panel",
+        character_bindings=[_b(f"asset:{i}", 1, f"art:c{i}", f"sha:{i}") for i in range(8)],
+    )  # panel + 8 = 9 capacity
+    manifest[0]["sha256"] = digest(panel)
     for entry in manifest:
         uploads[entry["artifact_id"]] = f"u_{entry['artifact_id'].replace(':', '_')}.png"
-    graph = compile_shot_graph(variant="turbo4", panel_path=panel,
-                               reference_manifest=manifest,
-                               prompt="<Picture 1> scene, <Picture 2>..<Picture 9> identity.",
-                               width=864, height=480, frames=124, seed=1,
-                               upload_names=uploads)
-    assert len(graph["136"]["inputs"]["ref_images"]) == 9
+    graph = compile_shot_graph(
+        variant="turbo4",
+        panel_path=panel,
+        reference_manifest=manifest,
+        prompt=" ".join(f"<Picture {i}>" for i in range(1, 10)),
+        width=864,
+        height=480,
+        frames=124,
+        seed=1,
+        upload_names=uploads,
+    )
+    assert sum(k.startswith("ref_images.") for k in graph["136"]["inputs"]) == 9
     # one more ref overflows at manifest build time
     with pytest.raises(ReferenceManifestError):
         build_reference_manifest(
-            panel_artifact_id="art:panel", panel_sha256="sha:panel",
-            character_bindings=[_b(f"asset:{i}", 1) for i in range(10)])
+            panel_artifact_id="art:panel",
+            panel_sha256="sha:panel",
+            character_bindings=[_b(f"asset:{i}", 1) for i in range(10)],
+        )

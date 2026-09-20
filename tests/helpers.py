@@ -113,3 +113,39 @@ def make_series(tmp_path, state):
     cfg = Settings()
     cfg._data = {"paths": {"data": str(store.data_dir), "config": str(CONFIG)}}
     return store, cfg
+
+
+def seed_binding_subjects(db, series_id, chapter_id):
+    """Persist real subjects for binding store/API fixtures."""
+    with db.transaction() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO chapters "
+            "(id,series_id,number,created_at,updated_at) VALUES "
+            "(?,?,1,datetime('now'),datetime('now'))",
+            (chapter_id, series_id),
+        )
+        conn.execute(
+            "INSERT INTO pages "
+            "(id,chapter_id,series_id,birth_number,sequence_position,source_path,"
+            "created_at,updated_at) "
+            "VALUES "
+            "('binding-page',?,?,1,1,'source.png',datetime('now'),datetime('now'))",
+            (chapter_id, series_id),
+        )
+        for i, pid in enumerate(["ch01_p001_01", "ch01_p001_02", "ch01_p009_05"], 1):
+            conn.execute(
+                "INSERT INTO panels "
+                "(id,page_id,series_id,chapter_id,birth_ordinal,reading_order,bbox_x,"
+                "bbox_y,bbox_w,bbox_h,created_at,updated_at) "
+                "VALUES "
+                "(?,'binding-page',?,?,?,?,0,0,10,10,datetime('now'),datetime('now'))",
+                (pid, series_id, chapter_id, i, i),
+            )
+        for shot in ["shot_a", "shot_x"]:
+            conn.execute(
+                "INSERT INTO shot_plan_revisions "
+                "(id,series_id,chapter_id,shot_id,revision,beat_coverage,source_panel"
+                "_ids,created_at,updated_at) "
+                "VALUES (?,?,?,?,1,'[]','[]',datetime('now'),datetime('now'))",
+                (shot, series_id, chapter_id, shot),
+            )

@@ -588,7 +588,8 @@ def models_list() -> None:
 def serve(
     data_dir: Path = typer.Option(None, "--data-dir", help="Koma data root."),
     host: str = typer.Option(
-        "127.0.0.1", help="Loopback by default; LAN needs explicit auth config."),
+        "127.0.0.1", help="Loopback by default; LAN needs explicit auth config."
+    ),
     port: int = typer.Option(8642, help="Local web app port."),
 ) -> None:
     """Start the local web app: /api/v1 + UI on one origin (D17).
@@ -600,6 +601,10 @@ def serve(
 
     from .web.api import AppFactory
 
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        raise typer.BadParameter(
+            "serve supports loopback only; LAN authentication is not implemented"
+        )
     resolved = data_dir if data_dir is not None else _default_data_dir()
     resolved = Path(resolved).resolve()
     factory = AppFactory(resolved)
@@ -615,3 +620,4 @@ def _default_data_dir() -> Path:
 
 if __name__ == "__main__":
     app()
+

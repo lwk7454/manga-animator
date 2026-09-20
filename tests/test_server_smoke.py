@@ -16,7 +16,7 @@ from koma.web.api import AppFactory
 def test_server_serves_console_and_api(tmp_path: Path):
     AppContext_open(tmp_path)
     app = AppFactory(tmp_path).build()
-    c = TestClient(app)
+    c = TestClient(app, base_url="http://127.0.0.1")
     # console page served at /
     r = c.get("/")
     assert r.status_code == 200
@@ -30,8 +30,13 @@ def test_server_serves_console_and_api(tmp_path: Path):
     assert "/api/v1/shots/{shot_revision_id}/assemble" in routes
     assert "/api/v1/shots/{shot_revision_id}/subtitles/{lang}" in routes
     assert "/" in routes
+    token = c.get("/api/v1/csrf").json()["token"]
+    result = c.post("/api/v1/runs", headers={"x-koma-csrf": token}, json={"chapter_id": "ch1"})
+    assert result.status_code == 503  # no silently broken default worker
+    assert "innerHTML" not in r.text
 
 
 def AppContext_open(tmp_path: Path):
     from koma.application.assets import AppContext
+
     return AppContext.open(tmp_path)

@@ -21,24 +21,35 @@ def review(tmp_path: Path):
             "INSERT INTO series (id, slug, revision, required_ratios,"
             " subtitle_languages, created_at, updated_at)"
             " VALUES ('ser1', 'demo', 1, '[\"16:9\"]', '[\"en\"]',"
-            " datetime('now'), datetime('now'))")
+            " datetime('now'), datetime('now'))"
+        )
         conn.execute(
             "INSERT INTO chapters (id, series_id, number, revision, created_at,"
-            " updated_at) VALUES ('ch1', 'ser1', 1, 1, datetime('now'), datetime('now'))")
+            " updated_at) VALUES ('ch1', 'ser1', 1, 1, datetime('now'), datetime('now'))"
+        )
         conn.execute(
             "INSERT INTO shot_plan_revisions (id, series_id, chapter_id,"
             " shot_id, revision, beat_coverage, source_panel_ids, purpose,"
             " route, camera, created_at, updated_at)"
             " VALUES ('sr:1', 'ser1', 'ch1', 'shot:1', 1, '[\"b1\"]',"
             " '[\"p1\"]', 'p', 'direct_r2v', '{}',"
-            " datetime('now'), datetime('now'))")
+            " datetime('now'), datetime('now'))"
+        )
         conn.execute(
             "INSERT INTO shot_ratio_specs (id, shot_revision_id, ratio,"
             " target_width, target_height, placement, framing_note,"
             " reference_manifest, generation_profile, dependency_fingerprint,"
             " created_at)"
             " VALUES ('spec:1', 'sr:1', '16:9', 864, 480, '{}', 'n', '[]', NULL,"
-            " 'fp', datetime('now'))")
+            " 'fp', datetime('now'))"
+        )
+    with db.transaction() as conn:
+        conn.execute(
+            "INSERT INTO story_beats "
+            "(id,series_id,chapter_id,plan_revision,beat_index,source_panel_ids,c"
+            "reated_at,updated_at) "
+            "VALUES ('b1','ser1','ch1',1,1,'[\"p1\"]',datetime('now'),datetime('now'))"
+        )
     return MotionReviewService(db), db
 
 
@@ -59,18 +70,26 @@ def test_register_candidates_increasing_index(review):
     svc, db = review
     _art(db, "art:c1")
     _art(db, "art:c2")
-    c1 = svc.register_candidate(shot_revision_id="sr:1", series_id="ser1",
-                                ratio="16:9", artifact_id="art:c1",
-                                input_fingerprint="fp:1")
-    c2 = svc.register_candidate(shot_revision_id="sr:1", series_id="ser1",
-                                ratio="16:9", artifact_id="art:c2",
-                                input_fingerprint="fp:1")
+    c1 = svc.register_candidate(
+        shot_revision_id="sr:1",
+        series_id="ser1",
+        ratio="16:9",
+        artifact_id="art:c1",
+        input_fingerprint="fp",
+    )
+    c2 = svc.register_candidate(
+        shot_revision_id="sr:1",
+        series_id="ser1",
+        ratio="16:9",
+        artifact_id="art:c2",
+        input_fingerprint="fp",
+    )
     assert (c1["candidate_index"], c2["candidate_index"]) == (1, 2)
 
 
 def test_budget_exhaustion_blocks_registration(review):
     svc, db = review
-    for i in range(4):
+    for i in range(2):
         aid = f"art:b{i}"
         with db.transaction() as conn:
             conn.execute(
@@ -82,9 +101,13 @@ def test_budget_exhaustion_blocks_registration(review):
                 " 'aa' * 32, 10, 'fp', '{}', '{}', 'validated', datetime('now'))",
                 (aid, f"{aid}/out.mp4"),
             )
-        svc.register_candidate(shot_revision_id="sr:1", series_id="ser1",
-                              ratio="16:9", artifact_id=aid,
-                              input_fingerprint="fp:1")
+        svc.register_candidate(
+            shot_revision_id="sr:1",
+            series_id="ser1",
+            ratio="16:9",
+            artifact_id=aid,
+            input_fingerprint="fp",
+        )
     with db.transaction() as conn:
         conn.execute(
             "INSERT INTO artifacts (id, series_id, scope_key, kind, mode,"
@@ -93,11 +116,16 @@ def test_budget_exhaustion_blocks_registration(review):
             " validation_status, created_at)"
             " VALUES ('art:b4', 'ser1', 'sk', 'motion', 'production', NULL,"
             " 'art:b4/out.mp4', 'aa' * 32, 10, 'fp', '{}', '{}', 'validated',"
-            " datetime('now'))")
+            " datetime('now'))"
+        )
     with pytest.raises(BlockedPrerequisite) as ei:
-        svc.register_candidate(shot_revision_id="sr:1", series_id="ser1",
-                              ratio="16:9", artifact_id="art:b4",
-                              input_fingerprint="fp:1")
+        svc.register_candidate(
+            shot_revision_id="sr:1",
+            series_id="ser1",
+            ratio="16:9",
+            artifact_id="art:b4",
+            input_fingerprint="fp",
+        )
     assert "budget exhausted" in str(ei.value)
 
 
@@ -106,9 +134,13 @@ def test_accept_is_exclusive_and_supersedes_siblings(review):
     for i in (1, 2):
         aid = f"art:s{i}"
         _art(db, aid)
-        svc.register_candidate(shot_revision_id="sr:1", series_id="ser1",
-                              ratio="16:9", artifact_id=aid,
-                              input_fingerprint="fp:1")
+        svc.register_candidate(
+            shot_revision_id="sr:1",
+            series_id="ser1",
+            ratio="16:9",
+            artifact_id=aid,
+            input_fingerprint="fp",
+        )
     pending = svc.pending_for_shot("sr:1", "16:9")
     res = svc.accept_candidate(pending[1]["id"], reviewer="pooh")
     assert res["acceptance"] == "accepted"
@@ -123,13 +155,16 @@ def test_accept_is_exclusive_and_supersedes_siblings(review):
 def test_reject_requires_quality_reason(review):
     svc, db = review
     _art(db, "art:r1")
-    c = svc.register_candidate(shot_revision_id="sr:1", series_id="ser1",
-                               ratio="16:9", artifact_id="art:r1",
-                               input_fingerprint="fp:1")
+    c = svc.register_candidate(
+        shot_revision_id="sr:1",
+        series_id="ser1",
+        ratio="16:9",
+        artifact_id="art:r1",
+        input_fingerprint="fp",
+    )
     with pytest.raises(ValueError):
         svc.reject_candidate(c["candidate_id"], reviewer="pooh", note="  ")
-    svc.reject_candidate(c["candidate_id"], reviewer="pooh",
-                         note="eye drift destroyed the ahegao")
+    svc.reject_candidate(c["candidate_id"], reviewer="pooh", note="eye drift destroyed the ahegao")
     pending = svc.pending_for_shot("sr:1", "16:9")
     assert pending[0]["acceptance"] == "rejected"
     assert "ahegao" in pending[0]["rejection_note"]
@@ -138,9 +173,13 @@ def test_reject_requires_quality_reason(review):
 def test_retry_blocked_while_unreviewed_or_exhausted(review):
     svc, db = review
     _art(db, "art:t1")
-    c = svc.register_candidate(shot_revision_id="sr:1", series_id="ser1",
-                               ratio="16:9", artifact_id="art:t1",
-                               input_fingerprint="fp:1")
+    c = svc.register_candidate(
+        shot_revision_id="sr:1",
+        series_id="ser1",
+        ratio="16:9",
+        artifact_id="art:t1",
+        input_fingerprint="fp",
+    )
     # unreviewed candidate blocks retry (review-first, not retry-first)
     with pytest.raises(BlockedPrerequisite):
         svc.next_retry_spec("sr:1", "16:9", seed=99)
@@ -167,10 +206,15 @@ def test_budget_override_via_profile(review):
                 " validation_status, created_at)"
                 f" VALUES ('{aid}', 'ser1', 'sk', 'motion', 'production', NULL,"
                 f" '{aid}/out.mp4', 'aa' * 32, 10, 'fp', '{{}}', '{{}}',"
-                " 'validated', datetime('now'))")
-        svc.register_candidate(shot_revision_id="sr:1", series_id="ser1",
-                              ratio="16:9", artifact_id=aid,
-                              input_fingerprint="fp:1")
+                " 'validated', datetime('now'))"
+            )
+        svc.register_candidate(
+            shot_revision_id="sr:1",
+            series_id="ser1",
+            ratio="16:9",
+            artifact_id=aid,
+            input_fingerprint="fp",
+        )
     assert svc.retry_budget_left("sr:1", "16:9") == 0
     with pytest.raises(BlockedPrerequisite):
         svc.next_retry_spec("sr:1", "16:9", seed=1)
@@ -180,3 +224,64 @@ def test_unknown_candidate_404(review):
     svc, _db = review
     with pytest.raises(NotFound):
         svc.reject_candidate("candidate:none", reviewer="pooh", note="x")
+
+
+def test_new_acceptance_supersedes_previously_accepted_candidate(review):
+    svc, db = review
+    _art(db, "first")
+    one = svc.register_candidate(
+        shot_revision_id="sr:1",
+        series_id="ser1",
+        ratio="16:9",
+        artifact_id="first",
+        input_fingerprint="fp",
+    )
+    svc.accept_candidate(one["candidate_id"], reviewer="owner")
+    _art(db, "second")
+    two = svc.register_candidate(
+        shot_revision_id="sr:1",
+        series_id="ser1",
+        ratio="16:9",
+        artifact_id="second",
+        input_fingerprint="fp",
+    )
+    svc.accept_candidate(two["candidate_id"], reviewer="owner")
+    states = svc.pending_for_shot("sr:1", "16:9")
+    assert [c["acceptance"] for c in states] == ["superseded", "accepted"]
+
+
+def test_stale_candidate_review_revision_conflicts(review):
+    from koma.storage.errors import RevisionConflict
+
+    svc, db = review
+    _art(db)
+    candidate = svc.register_candidate(
+        shot_revision_id="sr:1",
+        series_id="ser1",
+        ratio="16:9",
+        artifact_id="art:c1",
+        input_fingerprint="fp",
+    )
+    with pytest.raises(RevisionConflict):
+        svc.accept_candidate(candidate["candidate_id"], reviewer="owner", expected_revision=99)
+
+
+def test_candidate_registration_is_idempotent(review):
+    svc, db = review
+    _art(db)
+    args = dict(
+        shot_revision_id="sr:1",
+        series_id="ser1",
+        ratio="16:9",
+        artifact_id="art:c1",
+        input_fingerprint="fp",
+    )
+    assert svc.register_candidate(**args) == svc.register_candidate(**args)
+    assert svc.retry_budget_left("sr:1", "16:9") == 1
+
+
+def test_profile_identifier_is_not_parsed_as_json(review):
+    svc, db = review
+    with db.transaction() as conn:
+        conn.execute("UPDATE shot_ratio_specs SET generation_profile='minimax_h3_turbo'")
+    assert svc.retry_budget_left("sr:1", "16:9") == 2

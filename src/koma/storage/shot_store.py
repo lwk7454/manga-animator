@@ -48,16 +48,27 @@ class ShotStore:
             ).fetchone()
             if dup:
                 raise InvalidTransition(
-                    f"beat_index {beat_index} already exists in plan r{plan_revision}")
+                    f"beat_index {beat_index} already exists in plan r{plan_revision}"
+                )
             conn.execute(
                 "INSERT INTO story_beats (id, series_id, chapter_id, plan_revision,"
                 " beat_index, source_panel_ids, supporting_text, participants,"
                 " dialogue_line_ids, allowed_motion, created_at, updated_at)"
                 " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (beat_id, series_id, chapter_id, plan_revision, beat_index,
-                 json.dumps(source_panel_ids), supporting_text,
-                 json.dumps(participants or []), json.dumps(dialogue_line_ids or []),
-                 json.dumps(allowed_motion or []), now, now),
+                (
+                    beat_id,
+                    series_id,
+                    chapter_id,
+                    plan_revision,
+                    beat_index,
+                    json.dumps(source_panel_ids),
+                    supporting_text,
+                    json.dumps(participants or []),
+                    json.dumps(dialogue_line_ids or []),
+                    json.dumps(allowed_motion or []),
+                    now,
+                    now,
+                ),
             )
         return {"beat_id": beat_id, "beat_index": beat_index}
 
@@ -115,11 +126,25 @@ class ShotStore:
                 " revision, beat_coverage, source_panel_ids, purpose, start_state,"
                 " end_state, action_beats, camera, duration_policy, route,"
                 " route_reason, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (rev_id, series_id, chapter_id, shot_id, rev,
-                 json.dumps(beat_coverage), json.dumps(source_panel_ids),
-                 purpose, start_state, end_state,
-                 json.dumps(action_beats or []), json.dumps(camera or {}),
-                 json.dumps(duration_policy or {}), route, route_reason, now, now),
+                (
+                    rev_id,
+                    series_id,
+                    chapter_id,
+                    shot_id,
+                    rev,
+                    json.dumps(beat_coverage),
+                    json.dumps(source_panel_ids),
+                    purpose,
+                    start_state,
+                    end_state,
+                    json.dumps(action_beats or []),
+                    json.dumps(camera or {}),
+                    json.dumps(duration_policy or {}),
+                    route,
+                    route_reason,
+                    now,
+                    now,
+                ),
             )
         return {"shot_revision_id": rev_id, "shot_id": shot_id, "revision": rev}
 
@@ -131,8 +156,13 @@ class ShotStore:
         if row is None:
             raise NotFound(f"shot revision {shot_revision_id}")
         d = dict(row)
-        for key in ("beat_coverage", "source_panel_ids", "action_beats",
-                    "camera", "duration_policy"):
+        for key in (
+            "beat_coverage",
+            "source_panel_ids",
+            "action_beats",
+            "camera",
+            "duration_policy",
+        ):
             d[key] = json.loads(d[key])
         return d
 
@@ -144,11 +174,22 @@ class ShotStore:
         dialogue lines delivered; grouped shots preserve beat order."""
         beats = self.beats_for_plan(chapter_id, plan_revision)
         required = {b["beat_id"] for b in beats}
+        indices = {b["beat_id"]: b["beat_index"] for b in beats}
+        lines = set()
         covered: list[str] = []
         dialogue_seen: dict[str, str] = {}
         problems: list[str] = []
+        if not beats:
+            problems.append("plan has no story beats")
+        for beat in beats:
+            for line in beat["dialogue_line_ids"]:
+                if line in lines:
+                    problems.append(f"dialogue line delivered more than once: {line}")
+                lines.add(line)
         for srid in shot_revision_ids:
             shot = self.get_shot_revision(srid)
+            if shot["chapter_id"] != chapter_id:
+                problems.append(f"shot {srid} belongs to another chapter")
             for bid in shot["beat_coverage"]:
                 if bid not in required:
                     problems.append(f"shot {srid} covers unknown beat {bid}")
@@ -159,13 +200,17 @@ class ShotStore:
         missing = required - set(covered)
         if missing:
             problems.append(f"uncovered beats: {sorted(missing)}")
-        if covered != sorted(covered, key=lambda bid: next(
-                b["beat_index"] for b in beats if b["beat_id"] == bid)):
+        known = [bid for bid in covered if bid in indices]
+        if known != sorted(known, key=indices.__getitem__):
             problems.append("beat order not preserved across shots")
         if len(set(covered)) != len(covered):
             problems.append("duplicate beat coverage")
-        return {"valid": not problems, "problems": problems,
-                "beats_required": len(required), "beats_covered": len(set(covered))}
+        return {
+            "valid": not problems,
+            "problems": problems,
+            "beats_required": len(required),
+            "beats_covered": len(set(covered)),
+        }
 
     # ── ratio specs ───────────────────────────────────────────────────────
     def add_ratio_spec(
@@ -200,10 +245,19 @@ class ShotStore:
                 " target_width, target_height, placement, framing_note,"
                 " reference_manifest, generation_profile, dependency_fingerprint,"
                 " created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (spec_id, shot_revision_id, ratio, target_width, target_height,
-                 json.dumps(placement or {}), framing_note,
-                 json.dumps(reference_manifest or []), generation_profile,
-                 dependency_fingerprint, now),
+                (
+                    spec_id,
+                    shot_revision_id,
+                    ratio,
+                    target_width,
+                    target_height,
+                    json.dumps(placement or {}),
+                    framing_note,
+                    json.dumps(reference_manifest or []),
+                    generation_profile,
+                    dependency_fingerprint,
+                    now,
+                ),
             )
         return {"spec_id": spec_id, "ratio": ratio}
 
@@ -221,41 +275,110 @@ class ShotStore:
         return d
 
     # ── production gate ───────────────────────────────────────────────────
-    def require_production_ready(self, shot_revision_id: str, ratio: str) -> dict[str, Any]:
-        """All beat participants approved + ratio spec exists, else blocked."""
-        shot = self.get_shot_revision(shot_revision_id)
-        spec = self.get_ratio_spec(shot_revision_id, ratio)
-        beat_ids = shot["beat_coverage"]
-        blockers: list[str] = []
-        with self.db.transaction() as conn:
-            for bid in beat_ids:
-                participants = json.loads(conn.execute(
-                    "SELECT participants FROM story_beats WHERE id=?", (bid,)
-                ).fetchone()["participants"])
-                for asset_id in participants:
-                    row = conn.execute(
-                        "SELECT active_revision FROM assets WHERE id=?", (asset_id,)
-                    ).fetchone()
-                    if row is None:
-                        blockers.append(f"beat {bid}: asset {asset_id} missing")
-                        continue
-                    rev = int(row["active_revision"] or 0)
-                    if rev == 0:
-                        blockers.append(f"beat {bid}: asset {asset_id} has no revisions")
-                        continue
-                    appr = conn.execute(
-                        "SELECT state FROM asset_approvals WHERE asset_id=? AND revision=?",
-                        (asset_id, rev),
-                    ).fetchone()
-                    if appr is None or appr["state"] != "approved":
-                        state = appr['state'] if appr else 'unreviewed'
-                        blockers.append(f"beat {bid}: asset {asset_id} r{rev} is {state}")
-        if blockers:
-            raise BlockedPrerequisite(
-                "shot not production-ready: " + "; ".join(blockers)
+    def require_production_ready(
+        self, shot_revision_id: str, ratio: str, *, conn=None
+    ) -> dict[str, Any]:
+        """Validate exact frozen reference bindings, including revocation.
+
+        Accept a caller transaction so promotion can fence approvals atomically.
+        A newer unapproved proposal never silently rebinds an old approved shot.
+        """
+        if conn is None:
+            with self.db.transaction() as transaction:
+                return self.require_production_ready(shot_revision_id, ratio, conn=transaction)
+        shot = conn.execute(
+            "SELECT * FROM shot_plan_revisions WHERE id=?", (shot_revision_id,)
+        ).fetchone()
+        spec = conn.execute(
+            "SELECT * FROM shot_ratio_specs WHERE shot_revision_id=? AND ratio=?",
+            (shot_revision_id, ratio),
+        ).fetchone()
+        if shot is None or spec is None:
+            raise NotFound(f"shot/ratio {shot_revision_id}/{ratio}")
+        blockers = []
+        participants = set()
+        for bid in json.loads(shot["beat_coverage"]):
+            beat = conn.execute("SELECT * FROM story_beats WHERE id=?", (bid,)).fetchone()
+            if (
+                beat is None
+                or beat["chapter_id"] != shot["chapter_id"]
+                or beat["series_id"] != shot["series_id"]
+            ):
+                blockers.append(f"missing or foreign beat {bid}")
+            else:
+                participants.update(json.loads(beat["participants"]))
+        panel_ids = json.loads(shot["source_panel_ids"])
+        occurrences = conn.execute(
+            "SELECT * FROM asset_occurrence_bindings WHERE series_id=?", (shot["series_id"],)
+        ).fetchall()
+        latest = {}
+        for occurrence in occurrences:
+            key = (
+                occurrence["subject_kind"],
+                occurrence["panel_id"] or occurrence["shot_id"],
+                occurrence["asset_id"] or occurrence["id"],
             )
-        return {"shot_revision_id": shot_revision_id, "ratio": ratio, "ready": True,
-                "route": shot["route"], "spec_id": spec["id"]}
+            if (
+                key not in latest
+                or occurrence["binding_revision"] > latest[key]["binding_revision"]
+            ):
+                latest[key] = occurrence
+        required_bindings = {}
+        for occurrence in latest.values():
+            if occurrence["shot_id"] == shot["shot_id"] or occurrence["panel_id"] in panel_ids:
+                if occurrence["state"] != "bound":
+                    blockers.append("unresolved asset occurrence")
+                elif occurrence["asset_id"]:
+                    participants.add(occurrence["asset_id"])
+                    required_bindings.setdefault(occurrence["asset_id"], set()).add(
+                        occurrence["asset_revision"]
+                    )
+        refs = json.loads(spec["reference_manifest"])
+        bound = {}
+        for ref in refs:
+            if ref.get("role") == "story_composition":
+                continue
+            asset_id, rev = ref.get("entity"), ref.get("asset_revision")
+            asset = conn.execute("SELECT * FROM assets WHERE id=?", (asset_id,)).fetchone()
+            approval = conn.execute(
+                "SELECT state FROM asset_approvals WHERE asset_id=? AND revision=?", (asset_id, rev)
+            ).fetchone()
+            revision = conn.execute(
+                "SELECT artifact_ids FROM asset_revisions WHERE asset_id=? AND revision=?",
+                (asset_id, rev),
+            ).fetchone()
+            artifact = conn.execute(
+                "SELECT * FROM artifacts WHERE id=?", (ref.get("artifact_id"),)
+            ).fetchone()
+            if (
+                asset is None
+                or asset["series_id"] != shot["series_id"]
+                or approval is None
+                or approval["state"] != "approved"
+                or revision is None
+                or ref.get("artifact_id") not in json.loads(revision["artifact_ids"])
+                or artifact is None
+                or artifact["series_id"] != shot["series_id"]
+                or artifact["sha256"] != ref.get("sha256")
+            ):
+                blockers.append(f"invalid/unapproved exact reference {asset_id} r{rev}")
+            if asset_id in bound and bound[asset_id] != rev:
+                blockers.append(f"conflicting variants for {asset_id}")
+            bound[asset_id] = rev
+        for asset_id in participants - set(bound):
+            blockers.append(f"asset {asset_id} lacks an exact approved reference binding")
+        for asset_id, revisions in required_bindings.items():
+            if revisions != {bound.get(asset_id)}:
+                blockers.append(f"reference differs from current occurrence binding for {asset_id}")
+        if blockers:
+            raise BlockedPrerequisite("shot not production-ready: " + "; ".join(blockers))
+        return {
+            "shot_revision_id": shot_revision_id,
+            "ratio": ratio,
+            "ready": True,
+            "route": shot["route"],
+            "spec_id": spec["id"],
+        }
 
 
 __all__ = ["ROUTES", "ShotStore"]

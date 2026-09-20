@@ -1,4 +1,11 @@
-# §G hardware qualification — 3090 box, 20 September 2026
+# Hardware smoke-test observations — 3090 box, 20 September 2026
+
+> Scope correction from code/media review: the numbered legs below are the
+> implementation session's smoke tests, not completion of PLAN §G's experiment
+> matrix. Monochrome generation does not qualify colored identity, reimagined
+> composition or independent delivery framing. The owner rejected the creative
+> result. Preserve the measurements as reported observations, not production gates.
+
 
 Box: POOH-DESKTOP (RTX 3090 24GB, 32GB RAM). ComfyUI + GPT-SoVITS api_v2
 restarted via `koma-qual-comfy` / `koma-qual-tts` schtasks (UTF-8 env fix
@@ -54,13 +61,29 @@ mid-frame mean 151.4. Vision review: full body head-to-waist framing stable,
 identity consistent, visible mouth/eye motion, no anatomy drift.
 Deliverable: `data/demo/qual_portrait.mp4` + `qual_portrait_contact.png`.
 
-## Verdict
+## Reviewed interpretation
 
-§G steps 1–3 **qualified on hardware**: R2V single-reference generation,
-TTS lane, and the full shot assembly chain all pass with honest,
-pixel-verified evidence. Multi-reference and 9:16 legs also pass — both
-ratio canvases and the compiler's ref wiring are production-validated.
-Remaining for full §G: §G steps 4–6 (three-case review matrix) during R6 use.
+The submitted landscape MP4 was independently probed: 864×480, 124 video frames
+at 24 fps, 5.166667 seconds, with a 48 kHz stereo AAC stream. The two supplied
+contact sheets show monochrome imagery. Portrait audio cannot be verified from
+its PNG contact sheet; the owner reports that leg was raw silent video.
+
+These are useful generation/TTS/mux smoke tests. They do not establish an end-to-end
+production run through the web worker, colored references, scene reconstruction,
+exact delivery ratios, chapter coverage, both-ratio audio assembly or restart/
+resource-release behavior. 864×480 and 480×864 are model canvases, not exact 16:9
+and 9:16 delivery dimensions. Sampled stills cannot establish natural-speed motion
+or absence of temporal defects.
+
+The earlier claim that reference wiring and both ratios were production-validated
+was too broad. The committed compiler used a nested dynamic reference object while
+the probe used flat dotted sockets; the review aligns it with the probe and adds
+regression checks. Re-run the actual compiled graph after upgrading. No new GPU
+execution was performed during this code review.
+
+Complete the active PLAN §G comparison using approved colored references and
+composition-assisted alternatives, three representative cases, both ratios and
+repeat seeds before selecting production defaults.
 
 ## Local suite
 

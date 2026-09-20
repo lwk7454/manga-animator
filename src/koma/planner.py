@@ -35,14 +35,22 @@ def propose_beats_from_script(
     for panel in panels_in_order:
         pid = panel["panel_id"]
         doc = script_panels.get(pid) or {}
-        lines = doc.get("dialogue") or doc.get("lines") or []
+        lines = doc.get("dialogue") or doc.get("lines") or doc.get("ocr", {}).get("lines", [])
         line_ids = []
         for i, ln in enumerate(lines):
-            if (ln.get("jp") or ln.get("text") or "").strip():
-                line_ids.append(f"ln:{pid}:{i}")
+            if (
+                ln.get("manual_text")
+                or ln.get("source_text")
+                or ln.get("jp")
+                or ln.get("text")
+                or ""
+            ).strip():
+                line_ids.append(ln.get("line_id") or f"ln:{pid}:{i}")
         idx += 1
         result = shots.add_beat(
-            series_id, chapter_id, plan_revision,
+            series_id,
+            chapter_id,
+            plan_revision,
             beat_index=idx,
             source_panel_ids=[pid],
             supporting_text=str(doc.get("caption") or "")[:200],
@@ -66,6 +74,8 @@ def propose_shots_from_beats(
     """Default planner: dialogue beats get their own shot; non-dialogue
     consecutive beats group up to max_beats_per_shot (several panels may
     form one shot — D18). Beat order preserved; no skipping."""
+    if max_beats_per_shot < 1:
+        raise PlanProposalError("max_beats_per_shot must be positive")
     proposals: list[dict[str, Any]] = []
     group: list[dict[str, Any]] = []
     for b in beats:
@@ -79,15 +89,20 @@ def propose_shots_from_beats(
     return proposals
 
 
-def _emit(series_id: str, chapter_id: str, group: list[dict[str, Any]],
-          shots: ShotStore) -> dict[str, Any]:
+def _emit(
+    series_id: str, chapter_id: str, group: list[dict[str, Any]], shots: ShotStore
+) -> dict[str, Any]:
     panel_ids: list[str] = []
     for b in group:
         panel_ids.extend(b["source_panel_ids"])
-    purpose = ("dialogue delivery" if any(b["dialogue_line_ids"] for b in group)
-               else "transition/supporting movement")
+    purpose = (
+        "dialogue delivery"
+        if any(b["dialogue_line_ids"] for b in group)
+        else "transition/supporting movement"
+    )
     return shots.add_shot_revision(
-        series_id, chapter_id,
+        series_id,
+        chapter_id,
         beat_coverage=[b["beat_id"] for b in group],
         source_panel_ids=panel_ids,
         purpose=purpose,
@@ -112,30 +127,46 @@ def spec_ratios_for_shot(
     # subject placement defaults: center, fit inside with 5% margin
     placement = {"scale": "fit_contain", "margin_pct": 0.05}
     return shots.add_ratio_spec(
-        shot_revision_id, ratio,
-        target_width=width, target_height=height,
+        shot_revision_id,
+        ratio,
+        target_width=width,
+        target_height=height,
         placement=placement,
         framing_note=f"canvas {width}x{height} for {ratio}",
         reference_manifest=[],  # filled from bindings at dispatch
         generation_profile=profile,
         dependency_fingerprint=fingerprint_spec(
-            shot_revision_id, ratio, width, height, placement, profile),
+            shot_revision_id, ratio, width, height, placement, profile
+        ),
     )
 
 
-def fingerprint_spec(shot_revision_id: str, ratio: str, width: int, height: int,
-                     placement: dict | None, profile: str | None) -> str:
+def fingerprint_spec(
+    shot_revision_id: str,
+    ratio: str,
+    width: int,
+    height: int,
+    placement: dict | None,
+    profile: str | None,
+) -> str:
     from .util import canonical_hash
-    payload = {"shot_revision_id": shot_revision_id, "ratio": ratio,
-               "width": width, "height": height,
-               "placement": placement or {}, "profile": profile}
+
+    payload = {
+        "shot_revision_id": shot_revision_id,
+        "ratio": ratio,
+        "width": width,
+        "height": height,
+        "placement": placement or {},
+        "profile": profile,
+    }
     return canonical_hash(payload)
 
 
 def validate_no_invented_events(
-    beats: list[dict[str, Any]], proposed: list[dict[str, Any]],
+    beats: list[dict[str, Any]],
+    proposed: list[dict[str, Any]],
 ) -> None:
-    """New events beyond source-supported facts are prohibited (§E)."""
+    """Reject unknown beat IDs. Semantic story fidelity still requires human review."""
     source_texts = {b["beat_id"]: b["supporting_text"] for b in beats}
     for p in proposed:
         for bid in p.get("beat_coverage", []):
@@ -145,7 +176,6 @@ def validate_no_invented_events(
 
 def source_panel_ids_str(panel_ids: list[str]) -> str:
     return ", ".join(panel_ids[:3]) + ("…" if len(panel_ids) > 3 else "")
-
 
 
 __all__ = [

@@ -46,3 +46,7 @@ select = ["E", "F", "W", "I", "B", "UP", "RUF"]
 ignore = [
     "B008",  # typer idiom: function calls in argument defaults are how typer works
 ]
+
+
+[tool.setuptools.package-data]
+"koma.web" = ["static/*.html"]

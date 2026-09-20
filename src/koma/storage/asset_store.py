@@ -44,7 +44,7 @@ class AssetStore:
             raise ValueError(f"kind must be one of {ASSET_KINDS}")
         asset_id = f"asset:{new_id()}"
         now = utcnow_iso()
-        with self.db.transaction() as conn:
+        with self.db.transaction(immediate=True) as conn:
             row = conn.execute(
                 "SELECT id FROM assets WHERE series_id=? AND kind=? AND display_name=?",
                 (series_id, kind, display_name),
@@ -55,16 +55,22 @@ class AssetStore:
                 "INSERT INTO assets (id, series_id, kind, display_name, importance,"
                 " source_occurrences, created_at, updated_at)"
                 " VALUES (?,?,?,?,?,?,?,?)",
-                (asset_id, series_id, kind, display_name, importance,
-                 json.dumps(source_occurrences or []), now, now),
+                (
+                    asset_id,
+                    series_id,
+                    kind,
+                    display_name,
+                    importance,
+                    json.dumps(source_occurrences or []),
+                    now,
+                    now,
+                ),
             )
         return {"asset_id": asset_id, "kind": kind, "display_name": display_name}
 
     def get_asset(self, asset_id: str) -> dict[str, Any]:
-        with self.db.transaction() as conn:
-            row = conn.execute(
-                "SELECT * FROM assets WHERE id=?", (asset_id,)
-            ).fetchone()
+        with self.db.transaction(immediate=True) as conn:
+            row = conn.execute("SELECT * FROM assets WHERE id=?", (asset_id,)).fetchone()
         if row is None:
             raise NotFound(f"asset {asset_id}")
         d = dict(row)
@@ -72,7 +78,7 @@ class AssetStore:
         return d
 
     def list_assets(self, series_id: str, kind: str | None = None) -> list[dict[str, Any]]:
-        with self.db.transaction() as conn:
+        with self.db.transaction(immediate=True) as conn:
             if kind:
                 rows = conn.execute(
                     "SELECT * FROM assets WHERE series_id=? AND kind=? ORDER BY display_name",
@@ -93,16 +99,15 @@ class AssetStore:
     def set_importance(self, asset_id: str, importance: str, *, expected_revision: int) -> int:
         if importance not in ("normal", "story", "required"):
             raise ValueError("importance must be normal|story|required")
-        with self.db.transaction() as conn:
-            row = conn.execute(
-                "SELECT revision FROM assets WHERE id=?", (asset_id,)
-            ).fetchone()
+        with self.db.transaction(immediate=True) as conn:
+            row = conn.execute("SELECT revision FROM assets WHERE id=?", (asset_id,)).fetchone()
             if row is None:
                 raise NotFound(f"asset {asset_id}")
             rev = int(row["revision"])
             if rev != expected_revision:
                 raise RevisionConflict(
-                    f"asset {asset_id} at revision {rev}, not {expected_revision}")
+                    f"asset {asset_id} at revision {rev}, not {expected_revision}"
+                )
             conn.execute(
                 "UPDATE assets SET importance=?, revision=revision+1, updated_at=? WHERE id=?",
                 (importance, utcnow_iso(), asset_id),
@@ -122,19 +127,30 @@ class AssetStore:
         if origin not in ("uploaded", "generated", "registry-v1"):
             raise ValueError("origin must be uploaded|generated|registry-v1")
         now = utcnow_iso()
-        with self.db.transaction() as conn:
+        with self.db.transaction(immediate=True) as conn:
             row = conn.execute(
                 "SELECT active_revision FROM assets WHERE id=?", (asset_id,)
             ).fetchone()
             if row is None:
                 raise NotFound(f"asset {asset_id}")
-            rev = (row["active_revision"] or 0) + 1
+            rev = conn.execute(
+                "SELECT COALESCE(MAX(revision), 0) + 1 FROM asset_revisions WHERE asset_id=?",
+                (asset_id,),
+            ).fetchone()[0]
             rev_id = f"arev:{new_id()}"
             conn.execute(
                 "INSERT INTO asset_revisions (id, asset_id, revision, payload, origin,"
                 " artifact_ids, parent_revision, created_at) VALUES (?,?,?,?,?,?,?,?)",
-                (rev_id, asset_id, rev, json.dumps(payload, sort_keys=True),
-                 origin, json.dumps(artifact_ids or []), parent_revision, now),
+                (
+                    rev_id,
+                    asset_id,
+                    rev,
+                    json.dumps(payload, sort_keys=True),
+                    origin,
+                    json.dumps(artifact_ids or []),
+                    parent_revision,
+                    now,
+                ),
             )
             conn.execute(
                 "UPDATE assets SET active_revision=?, updated_at=? WHERE id=?",
@@ -148,7 +164,7 @@ class AssetStore:
         return {"revision_id": rev_id, "revision": rev, "state": "awaiting_review"}
 
     def get_revision(self, asset_id: str, revision: int) -> dict[str, Any]:
-        with self.db.transaction() as conn:
+        with self.db.transaction(immediate=True) as conn:
             row = conn.execute(
                 "SELECT * FROM asset_revisions WHERE asset_id=? AND revision=?",
                 (asset_id, revision),
@@ -168,10 +184,28 @@ class AssetStore:
 
     # ── approvals (explicit human action only) ────────────────────────────
     def approve_revision(
-        self, asset_id: str, revision: int, *, approved_by: str, note: str = ""
+        self,
+        asset_id: str,
+        revision: int,
+        *,
+        approved_by: str,
+        note: str = "",
+        expected_asset_revision: int | None = None,
     ) -> dict[str, Any]:
+        if not approved_by.strip():
+            raise ValueError("reviewer is required")
         now = utcnow_iso()
-        with self.db.transaction() as conn:
+        with self.db.transaction(immediate=True) as conn:
+            asset = conn.execute(
+                "SELECT active_revision FROM assets WHERE id=?", (asset_id,)
+            ).fetchone()
+            if asset is None:
+                raise NotFound(f"asset {asset_id}")
+            if (
+                expected_asset_revision is not None
+                and (asset["active_revision"] or 0) != expected_asset_revision
+            ):
+                raise RevisionConflict("asset revision changed before approval")
             row = conn.execute(
                 "SELECT state FROM asset_approvals WHERE asset_id=? AND revision=?",
                 (asset_id, revision),
@@ -194,15 +228,15 @@ class AssetStore:
         return {"asset_id": asset_id, "revision": revision, "state": "approved"}
 
     def reject_revision(self, asset_id: str, revision: int, *, note: str = "") -> dict:
-        with self.db.transaction() as conn:
+        with self.db.transaction(immediate=True) as conn:
             row = conn.execute(
                 "SELECT state FROM asset_approvals WHERE asset_id=? AND revision=?",
                 (asset_id, revision),
             ).fetchone()
             if row is None:
                 raise NotFound(f"approval for {asset_id} r{revision}")
-            if row["state"] == "approved":
-                raise InvalidTransition("approved revision cannot be rejected; revoke first")
+            if row["state"] != "awaiting_review":
+                raise InvalidTransition(f"cannot reject {row['state']} revision")
             conn.execute(
                 "UPDATE asset_approvals SET state='rejected', decision_note=?"
                 " WHERE asset_id=? AND revision=?",
@@ -212,7 +246,7 @@ class AssetStore:
 
     def revoke_approval(self, asset_id: str, revision: int, *, note: str = "") -> dict:
         """Revocation makes downstream current deliverables stale (§C invalidation)."""
-        with self.db.transaction() as conn:
+        with self.db.transaction(immediate=True) as conn:
             row = conn.execute(
                 "SELECT state FROM asset_approvals WHERE asset_id=? AND revision=?",
                 (asset_id, revision),
@@ -230,7 +264,7 @@ class AssetStore:
 
     def require_approved(self, asset_id: str, revision: int) -> None:
         """Production gate: exact approved revision or BlockedPrerequisite."""
-        with self.db.transaction() as conn:
+        with self.db.transaction(immediate=True) as conn:
             row = conn.execute(
                 "SELECT state FROM asset_approvals WHERE asset_id=? AND revision=?",
                 (asset_id, revision),
@@ -257,7 +291,17 @@ class AssetStore:
         subject_kind = "panel" if panel_id else "shot"
         binding_id = f"bind:{new_id()}"
         now = utcnow_iso()
-        with self.db.transaction() as conn:
+        with self.db.transaction(immediate=True) as conn:
+            self._check_subject(conn, series_id, panel_id, shot_id)
+            asset = conn.execute("SELECT series_id FROM assets WHERE id=?", (asset_id,)).fetchone()
+            approval = conn.execute(
+                "SELECT state FROM asset_approvals WHERE asset_id=? AND revision=?",
+                (asset_id, asset_revision),
+            ).fetchone()
+            if asset is None or asset["series_id"] != series_id:
+                raise BlockedPrerequisite("asset belongs to a different series")
+            if approval is None or approval["state"] != "approved":
+                raise BlockedPrerequisite("reference approval changed before binding")
             row = conn.execute(
                 "SELECT COALESCE(MAX(binding_revision), 0) AS max_rev"
                 " FROM asset_occurrence_bindings WHERE asset_id=? AND subject_kind=?"
@@ -269,13 +313,28 @@ class AssetStore:
                 "INSERT INTO asset_occurrence_bindings (id, series_id, subject_kind,"
                 " panel_id, shot_id, asset_id, asset_revision, state, binding_revision,"
                 " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (binding_id, series_id, subject_kind, panel_id, shot_id,
-                 asset_id, asset_revision, "bound", brev, now, now),
+                (
+                    binding_id,
+                    series_id,
+                    subject_kind,
+                    panel_id,
+                    shot_id,
+                    asset_id,
+                    asset_revision,
+                    "bound",
+                    brev,
+                    now,
+                    now,
+                ),
             )
         return {"binding_id": binding_id, "binding_revision": brev, "state": "bound"}
 
     def bind_unknown(
-        self, series_id: str, *, panel_id: str | None = None, shot_id: str | None = None,
+        self,
+        series_id: str,
+        *,
+        panel_id: str | None = None,
+        shot_id: str | None = None,
         note: str = "",
     ) -> dict[str, Any]:
         """Explicit unknown/ambiguous binding blocks production until resolved."""
@@ -285,25 +344,50 @@ class AssetStore:
         binding_id = f"bind:{new_id()}"
         now = utcnow_iso()
         state = "unknown" if not note else "ambiguous"
-        with self.db.transaction() as conn:
+        with self.db.transaction(immediate=True) as conn:
+            self._check_subject(conn, series_id, panel_id, shot_id)
             conn.execute(
                 "INSERT INTO asset_occurrence_bindings (id, series_id, subject_kind,"
                 " panel_id, shot_id, asset_id, asset_revision, state, binding_revision,"
                 " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (binding_id, series_id, subject_kind, panel_id, shot_id,
-                 None, 0, state, 1, now, now),
+                (
+                    binding_id,
+                    series_id,
+                    subject_kind,
+                    panel_id,
+                    shot_id,
+                    None,
+                    0,
+                    state,
+                    1,
+                    now,
+                    now,
+                ),
             )
         return {"binding_id": binding_id, "state": state}
 
-    def bindings_for(self, *, panel_id: str | None = None,
-                     shot_id: str | None = None) -> list[dict]:
+    @staticmethod
+    def _check_subject(conn, series_id, panel_id, shot_id):
+        if panel_id:
+            row = conn.execute("SELECT series_id FROM panels WHERE id=?", (panel_id,)).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT series_id FROM shot_plan_revisions WHERE shot_id=? LIMIT 1", (shot_id,)
+            ).fetchone()
+        if row is None:
+            raise NotFound("binding subject does not exist")
+        if row["series_id"] != series_id:
+            raise BlockedPrerequisite("binding subject belongs to another series")
+
+    def bindings_for(
+        self, *, panel_id: str | None = None, shot_id: str | None = None
+    ) -> list[dict]:
         if (panel_id is None) == (shot_id is None):
             raise ValueError("exactly one of panel_id/shot_id is required")
         col = "panel_id" if panel_id else "shot_id"
-        with self.db.transaction() as conn:
+        with self.db.transaction(immediate=True) as conn:
             rows = conn.execute(
-                f"SELECT * FROM asset_occurrence_bindings WHERE {col}=?"
-                " ORDER BY binding_revision",
+                f"SELECT * FROM asset_occurrence_bindings WHERE {col}=? ORDER BY binding_revision",
                 (panel_id or shot_id,),
             ).fetchall()
         out = []
@@ -315,7 +399,7 @@ class AssetStore:
         return out
 
     def _approval_state(self, asset_id: str, revision: int) -> str | None:
-        with self.db.transaction() as conn:
+        with self.db.transaction(immediate=True) as conn:
             row = conn.execute(
                 "SELECT state FROM asset_approvals WHERE asset_id=? AND revision=?",
                 (asset_id, revision),

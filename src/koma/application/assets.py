@@ -12,7 +12,7 @@ from typing import Any
 
 from ..storage.asset_store import AssetStore
 from ..storage.database import Database
-from ..storage.errors import NotFound, RevisionConflict
+from ..storage.errors import NotFound
 from ..storage.shot_store import ShotStore
 
 
@@ -31,8 +31,7 @@ class AppContext:
         db = Database(Path(data_dir))
         db.initialize()
         assets = AssetStore(db)
-        return cls(data_dir=Path(data_dir), db=db, assets=assets,
-                   shots=ShotStore(db, assets))
+        return cls(data_dir=Path(data_dir), db=db, assets=assets, shots=ShotStore(db, assets))
 
 
 class AssetService:
@@ -49,6 +48,7 @@ class AssetService:
                 try:
                     rev = self.ctx.assets.get_revision(d["id"], d["active_revision"])
                     d["active_payload"] = rev["payload"]
+                    d["active_artifact_ids"] = rev["artifact_ids"]
                     d["approval"] = rev["approval"]
                 except NotFound:
                     d["active_payload"] = None
@@ -56,23 +56,34 @@ class AssetService:
         return out
 
     def propose_revision(
-        self, asset_id: str, payload: dict[str, Any], *,
-        origin: str = "generated", artifact_ids: list[str] | None = None,
+        self,
+        asset_id: str,
+        payload: dict[str, Any],
+        *,
+        origin: str = "generated",
+        artifact_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         return self.ctx.assets.add_revision(
-            asset_id, payload, origin=origin, artifact_ids=artifact_ids)
+            asset_id, payload, origin=origin, artifact_ids=artifact_ids
+        )
 
-    def approve(self, asset_id: str, revision: int, *, approved_by: str,
-                expected_asset_revision: int, note: str = "") -> dict[str, Any]:
+    def approve(
+        self,
+        asset_id: str,
+        revision: int,
+        *,
+        approved_by: str,
+        expected_asset_revision: int,
+        note: str = "",
+    ) -> dict[str, Any]:
         """Expected-revision CAS: stale UI edits get RevisionConflict."""
-        asset = self.ctx.assets.get_asset(asset_id)
-        current = asset.get("active_revision") or 0
-        if current != expected_asset_revision:
-            raise RevisionConflict(
-                f"asset {asset_id} moved to revision {current}; "
-                f"expected {expected_asset_revision}")
         return self.ctx.assets.approve_revision(
-            asset_id, revision, approved_by=approved_by, note=note)
+            asset_id,
+            revision,
+            approved_by=approved_by,
+            note=note,
+            expected_asset_revision=expected_asset_revision,
+        )
 
     def reject(self, asset_id: str, revision: int, *, note: str = "") -> dict:
         return self.ctx.assets.reject_revision(asset_id, revision, note=note)
@@ -80,22 +91,26 @@ class AssetService:
     def revoke(self, asset_id: str, revision: int, *, note: str = "") -> dict:
         return self.ctx.assets.revoke_approval(asset_id, revision, note=note)
 
-    def bind_to_panel(self, series_id: str, panel_id: str,
-                      asset_id: str, asset_revision: int) -> dict:
+    def bind_to_panel(
+        self, series_id: str, panel_id: str, asset_id: str, asset_revision: int
+    ) -> dict:
         return self.ctx.assets.bind_occurrence(
-            series_id, panel_id=panel_id, asset_id=asset_id,
-            asset_revision=asset_revision)
+            series_id, panel_id=panel_id, asset_id=asset_id, asset_revision=asset_revision
+        )
 
-    def bind_to_shot(self, series_id: str, shot_id: str,
-                     asset_id: str, asset_revision: int) -> dict:
+    def bind_to_shot(
+        self, series_id: str, shot_id: str, asset_id: str, asset_revision: int
+    ) -> dict:
         return self.ctx.assets.bind_occurrence(
-            series_id, shot_id=shot_id, asset_id=asset_id,
-            asset_revision=asset_revision)
+            series_id, shot_id=shot_id, asset_id=asset_id, asset_revision=asset_revision
+        )
 
-    def mark_unknown(self, series_id: str, panel_id: str | None,
-                     shot_id: str | None, note: str = "") -> dict:
+    def mark_unknown(
+        self, series_id: str, panel_id: str | None, shot_id: str | None, note: str = ""
+    ) -> dict:
         return self.ctx.assets.bind_unknown(
-            series_id, panel_id=panel_id, shot_id=shot_id, note=note)
+            series_id, panel_id=panel_id, shot_id=shot_id, note=note
+        )
 
     def dependency_impact(self, asset_id: str) -> dict[str, Any]:
         """Preview which panels/shots are bound to this asset (§C invalidation)."""

@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..r2v_worker import ExecutionOutcome, R2VWorker
-from ..storage.errors import InvalidTransition
+from ..storage.errors import InvalidTransition, NotFound, RevisionConflict
+from .api import _origin_allowed
 
 
 class RunRegistry:
@@ -33,29 +34,38 @@ class RunRegistry:
         self._inflight: dict[str, dict[str, Any]] = {}
         self._outcomes: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
+        self._execution = threading.Lock()
 
     def start(self, worker: R2VWorker, job: Any) -> dict[str, Any]:
         """Idempotent: an already-running job returns its live entry."""
         with self._lock:
             existing = self._inflight.get(job.work_id)
             if existing and existing["thread"].is_alive():
-                return {"work_id": job.work_id, "status": "already_running",
-                        "started_at": existing["started_at"]}
-            record = {"thread": None, "started_at": time.time(),
-                      "work_id": job.work_id}
+                return {
+                    "work_id": job.work_id,
+                    "status": "already_running",
+                    "started_at": existing["started_at"],
+                }
+            record = {
+                "thread": None,
+                "started_at": time.time(),
+                "work_id": job.work_id,
+                "executing": False,
+            }
 
             def _run():
                 try:
-                    outcome = worker.execute(job)
-                    self._record(job.work_id, outcome)
-                except Exception as exc:  # surfaced in the registry outcome
-                    self._outcomes[job.work_id] = {
-                        "status": "crashed", "detail": str(exc)[:2000],
-                        "finished_at": time.time(),
-                    }
+                    with self._execution:
+                        with self._lock:
+                            record["executing"] = True
+                        outcome = worker.execute(job)
+                        self._record(job.work_id, outcome)
+                except Exception as exc:
+                    self._record(job.work_id, ExecutionOutcome("", "held", str(exc)[:2000]))
+                finally:
+                    worker.store.db.close()
 
-            t = threading.Thread(target=_run, name=f"koma-r2v-{job.work_id}",
-                                 daemon=True)
+            t = threading.Thread(target=_run, name=f"koma-r2v-{job.work_id}", daemon=True)
             record["thread"] = t
             self._inflight[job.work_id] = record
             t.start()
@@ -77,7 +87,10 @@ class RunRegistry:
         with self._lock:
             inflight = self._inflight.get(work_id)
             if inflight and inflight["thread"].is_alive():
-                return {"work_id": work_id, "status": "running"}
+                return {
+                    "work_id": work_id,
+                    "status": "running" if inflight.get("executing") else "queued",
+                }
             if work_id in self._outcomes:
                 return dict(self._outcomes[work_id])
         return {"work_id": work_id, "status": "unknown"}
@@ -94,7 +107,9 @@ class RunRegistry:
 
 class EnqueueBody(BaseModel):
     chapter_id: str
-    ratios: list[str] = ["16:9"]
+    ratios: list[Literal["16:9", "9:16"]] = Field(
+        default_factory=lambda: ["16:9", "9:16"], min_length=1
+    )
 
 
 def install_run_endpoints(app, worker_builder, registry: RunRegistry) -> None:
@@ -109,6 +124,10 @@ def install_run_endpoints(app, worker_builder, registry: RunRegistry) -> None:
     async def enqueue(request: Request, body: EnqueueBody):
         if not _same_origin(request) or not _csrf_ok(request):
             raise HTTPException(403, "origin/CSRF rejected")
+        if worker_builder is None:
+            raise HTTPException(
+                503, "production R2V transport is not configured; use the qualified probe"
+            )
         worker = worker_builder()
         jobs = worker.assemble_jobs(body.chapter_id, body.ratios)
         if not jobs:
@@ -120,28 +139,52 @@ def install_run_endpoints(app, worker_builder, registry: RunRegistry) -> None:
     async def run_status(request: Request, work_id: str):
         if not _same_origin(request):
             raise HTTPException(403, "cross-origin request rejected")
-        return registry.status(work_id)
+        status = registry.status(work_id)
+        if status["status"] == "unknown" and worker_builder is not None:
+            worker = worker_builder()
+            with worker.store.db.transaction() as conn:
+                work = conn.execute(
+                    "SELECT state, blocked_reason FROM work_items WHERE id=?", (work_id,)
+                ).fetchone()
+                attempt = conn.execute(
+                    "SELECT id, state, remote_prompt_id FROM attempts WHERE work_id=? "
+                    "ORDER BY attempt_number DESC LIMIT 1",
+                    (work_id,),
+                ).fetchone()
+            if work is not None:
+                return {
+                    "work_id": work_id,
+                    "status": work["state"],
+                    "detail": work["blocked_reason"],
+                    "attempt": dict(attempt) if attempt else None,
+                }
+        return status
 
     @app.post("/api/v1/attempts/{attempt_id}/reconcile")
     async def reconcile(request: Request, attempt_id: str):
         if not _same_origin(request) or not _csrf_ok(request):
             raise HTTPException(403, "origin/CSRF rejected")
+        if worker_builder is None:
+            raise HTTPException(
+                503, "production R2V transport is not configured; use the qualified probe"
+            )
         worker = worker_builder()
         try:
             out = worker.reconcile_uncertain(attempt_id, worker.owner_epoch)
-        except InvalidTransition as exc:
+        except NotFound as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except (InvalidTransition, RevisionConflict) as exc:
             raise HTTPException(409, str(exc)) from exc
-        return {"attempt_id": out.attempt_id, "status": out.status,
-                "prompt_id": out.prompt_id, "detail": out.detail}
+        return {
+            "attempt_id": out.attempt_id,
+            "status": out.status,
+            "prompt_id": out.prompt_id,
+            "detail": out.detail,
+        }
 
 
 def _same_origin(request) -> bool:
-    origin = request.headers.get("origin")
-    if origin is None:
-        return True
-    host = request.headers.get("host", "")
-    return any(h in host for h in ("localhost", "127.0.0.1")) and any(
-        h in origin for h in ("localhost", "127.0.0.1"))
+    return _origin_allowed(request)
 
 
 def _csrf_ok(request) -> bool:

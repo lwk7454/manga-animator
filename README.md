@@ -1,5 +1,13 @@
 # manga-animator
 
+> **Current status (20 September 2026):** the standalone R2V probe is usable;
+> the local console and shot assembly are partial workflow components. Colored
+> reference generation and scene reconstruction are not implemented. Production
+> web generation requires an explicitly configured transport; assembly is an
+> explicit preview until approved script/voice and chapter-export integration land.
+> See the review checkpoint in [PLAN.md](PLAN.md) for milestone status.
+
+
 Manga pages → animated chapter video. `koma` is the Python CLI.
 
 [PLAN.md](PLAN.md) is the detailed implementation handoff and acceptance contract.
@@ -96,3 +104,4 @@ Keep generated media, model weights, database files, probe logs, scraped researc
 review reports and scratch scripts outside version control. Historical research
 and superseded decisions remain available in Git history; they do not override
 the current plan or constitute live validation.
+

@@ -1,9 +1,43 @@
 # Koma — colored manga-to-video and local web app implementation plan
 
-**Current handoff: 20 September 2026. Planning only; none of the new work below is claimed implemented.**
-**Inspected main:** `0aa266efabc717b450e1ee5930a2170eba0613b2`.
+**Current review handoff: 20 September 2026. Implementation status is recorded in the checkpoint below; the remaining sections specify the target design.**
+**Inspected main:** `6be159d744ee11b22d4b21f01be3bb55c57b5e78` (original planning baseline: `0aa266efabc717b450e1ee5930a2170eba0613b2`).
 
 This section, R0–R9, is the active implementation sequence. It supersedes conflicting requirements in the retained historical plan below. Preserve compatible reliability, audio, import and storage contracts; do not repeat completed work. The owner reports that the programmatic R2V test worked. That establishes an owner-reported successful run, not measured visual quality, memory, throughput or full application qualification. Preserve current generated work and state.
+
+## Review checkpoint — 20 September 2026 (through upstream `6be159d`)
+
+This checkpoint supersedes session-report claims that R0–R8 are finished or only GPU qualification remains. Code and tests exist for parts of each milestone, but there is no complete colored/reframed production workflow. The fixes accompanying this checkpoint do not implement the missing creative stages.
+
+| Milestone | Verified status and remaining work |
+|---|---|
+| R0 | Baseline/schema compatibility inventory exists. The review covered every changed production module from R0 onward, including the later R7/R8 commits. |
+| R1 | Asset/shot stores exist. Review fixes atomic migrations/future-version rejection, revision allocation, transactional approval CAS, binding ownership, exact-reference production gates and coverage errors. Still missing full immutable run-plan/dependency orchestration, explicit unresolved-binding resolution and comprehensive legacy-registry import. |
+| R2 | Local approval API and a small console exist, now with contained artifact previews and exact host/origin validation. This is not the planned complete reference-management app: proposal/upload workflows, identity merging, variant review and storyboard editing remain. |
+| R3 | Reference manifest/compiler helpers and monochrome smoke tests exist. Review fixes flat ComfyUI dynamic socket wiring, missing uploads, source hash/tag checks and upload identity. Approved colored sheet generation/binding and color-consistency qualification remain. |
+| R4 | Deterministic beat/shot proposal helpers exist. Review preserves typed OCR line IDs, reports unknown beats without crashing and rejects duplicate dialogue coverage. The known-beat validator is structural, not a semantic guarantee against invented events. No scene reconstruction, local shot-direction model, composition generation or composition-assisted adapter is implemented. |
+| R5 | Injected-transport worker and run API components exist. Review adds same-attempt resume, conservative recovery of submitting/uncertain states, exact request/server reconciliation, single-job adoption under ownership, serial local dispatch, durable status fallback and transactional candidate registration. `koma serve` deliberately returns 503 for generation until an actual production transport is supplied. Raw probe tests do not qualify this integration. Shot-plan→compiled work creation, production transport, durable command idempotency, pause/resource controls and frozen-plan orchestration remain. |
+| R6 | Candidate store/review helpers exist. Review fixes exclusive acceptance across old accepted siblings, CAS, idempotent registration, ratio-specific budgets and unresolved-attempt retry gating. Default budget is two candidates, matching the plan rather than the previous undocumented four. The UI review matrix, measured quality decisions, explicit retry-work creation, trim/retime manifests and qualified motion outcomes remain. |
+| R7 | Per-shot assembly primitives, SRT and an explicit preview API exist. Review fixes local-only TTS, missing dialogue/translation handling, speech truncation, source ordering/hash/path checks, per-ratio immutable output directories, shared execution ownership and durable preview status. Production assembly is unavailable until approved script/voice bindings replace arbitrary request text/reference paths. Chapter assembly, dialogue across cuts, delivery-ratio transforms/upscale, embedded/burned subtitles, independent production ratio completion and promotion manifests remain. **R7 is not trivial to complete and is not marked complete.** |
+| R8 | A minimal static console is served and packaged. Review fixes broken default-worker wiring, asset names, unsafe DOM insertion, one-ratio controls and silent empty-dialogue requests. Full workflow UI and production end-to-end qualification remain. |
+| R9 | Release blocked on the above features and acceptance gates. Do not delete the functioning probe/control workflow or owner media. |
+
+### Correctness changes and compatibility notes
+
+- Schema version 4 adds a candidate review revision. All migrations now execute within one SQLite transaction; unsupported newer schemas are refused. Back up owner data before upgrading. No migration invents asset approvals or discards media.
+- The R2V submitter injection now receives `(graph, upload_plan, context)`; an adapter must persist/send `context.request_identity` in remote metadata. Reconciliation snapshots must contain `graph`, `request_identity` and `server_identity`. Graph equality alone cannot identify an attempt. Legacy uncertain requests without this evidence stay held for review.
+- Deadlines and poll/download/validation transport errors preserve accepted nonterminal attempts. Resume polls the original prompt. The known old `interrupted` deadline record can recover its recorded prompt under ownership; it never creates a replacement submission. New work is held behind an outstanding local attempt.
+- A valid artifact is registered as a pending motion candidate in the same transaction as promotion. Technical generation success remains distinct from human acceptance and final chapter completion.
+- Assembly API requires `preview: true`; its success includes `production_complete: false`. Required subtitle languages come from series settings. Missing speech/translation or speech longer than video fails visibly. Silent video is allowed only as a raw generation artifact or an explicitly silent preview, never evidence of finished dialogue delivery.
+- Preview files live under separate shot/ratio/request directories. Subtitle requests require the ratio. Preview operation status is persisted in SQLite, survives API restart, and is marked interrupted when a worker has disappeared. Preview regeneration is explicit; this does not claim full production assembly checkpointing.
+- The lightweight console remains vanilla JavaScript rather than the earlier React default. Do not rewrite it solely to match a framework choice; first implement the missing user flows through shared services.
+
+### Evidence boundaries and next implementation order
+
+The owner supplied `qual_e2e_assembly.mp4` plus two PNG contact sheets. Direct inspection confirms monochrome sampled outputs; FFprobe confirms the MP4 has 124 H.264 frames at 24 fps, 864×480, and a stereo AAC track. No portrait MP4 was supplied in that attachment set, so its audio absence is owner-reported. Contact sheets cannot prove natural-speed motion or absence of temporal flicker. The 864×480 and 480×864 canvases are not exact delivery ratios. See the corrected qualification scope in [the hardware notes](docs/qual-hardware-2026-09-20.md).
+
+Next: finish colored asset proposal/approval and ratio-specific composition generation; compare the explicitly distinct R2V-reference and I2V-first-frame routes on approved references; integrate the actual worker transport and frozen plan/work creation; finish production R7 audio/subtitle/chapter assembly for both ratios; then complete the workflow UI and the three-case/two-seed acceptance matrix. Do not use a prompt that preserves B&W manga as evidence that the colored-video requirement is met. Preserve that original prompt only as a named technical control.
+
 
 ## A. Settled direction and explicit supersessions
 
@@ -1368,4 +1402,5 @@ The following are intentionally **dropped from the v1 backlog**, not silently fo
 7. Finish with the readiness level and concrete remaining blockers from §25, not a percentage-complete guess.
 
 **Handoff rule:** When a detail is not specified, choose the smallest implementation that preserves these invariants, record the choice in maintained code/docs and test externally visible behavior. If the choice changes an owner decision or product output semantics, obtain a decision rather than silently drifting. Routine module names, helper signatures and test organization do not require reopening the product design.
+
 
