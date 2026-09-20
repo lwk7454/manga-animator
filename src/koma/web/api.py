@@ -197,7 +197,32 @@ class AppFactory:
         # media endpoints use explicit handlers defined at build time to keep
         # the artifact-ID-only rule; range streaming added in the media module.
         self._install_csrf_helper(app)
+
+        # R5/R7/R8: runs (enqueue/status/reconcile), assembly, static console.
+        from .assembly import install_assembly_endpoints
+        from .runs import RunRegistry, install_run_endpoints
+        from .static_mount import install_static
+
+        registry = RunRegistry()
+
+        def _worker_builder():
+            from ..r2v_worker import R2VWorker
+            return R2VWorker(self.ctx.db, self.ctx.lock)
+        install_run_endpoints(app, _worker_builder, registry)
+
+        def _assembly_builder():
+            from ..shot_assembly import AssemblyService
+            return AssemblyService(self.ctx.db,
+                                   tts_base=self._tts_base())
+        install_assembly_endpoints(app, _assembly_builder,
+                                   self.ctx.data_dir)
+        install_static(app)
         return app
+
+    def _tts_base(self) -> str | None:
+        """TTS lane endpoint from the environment (never hardwired)."""
+        import os
+        return os.environ.get("KOMA_TTS_BASE")
 
     def _install_csrf_helper(self, app: FastAPI) -> None:
         def _csrf_ok(request: Request) -> bool:
