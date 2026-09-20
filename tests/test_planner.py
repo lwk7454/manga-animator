@@ -101,9 +101,10 @@ def test_invented_events_rejected(shots):
                                       [{"panel_id": "p1"}], {"p1": {}}, store)
     from koma.planner import PlanProposalError
     with pytest.raises(PlanProposalError):
+        validate_no_invented_events(
             store.beats_for_plan(ch, 1),
             [{"beat_coverage": ["beat:nonexistent",
-                                 beats[0]["beat_id"]]}])
+                                beats[0]["beat_id"]]}])
 
 
 def test_ratio_specs_both_orientations(shots):
