@@ -36,7 +36,8 @@ def bindings_for_shot(store: KomaStore, shot: dict[str, Any]) -> list[dict[str, 
         ).fetchall()
         latest = {}
         for row in rows:
-            if row["shot_id"] != shot["shot_id"] and row["panel_id"] not in shot["source_panel_ids"]:
+            if (row["shot_id"] != shot["shot_id"]
+                    and row["panel_id"] not in shot["source_panel_ids"]):
                 continue
             key = (row["asset_id"], row["subject_kind"], row["panel_id"] or row["shot_id"])
             prev = latest.get(key)

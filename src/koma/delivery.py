@@ -16,10 +16,10 @@ def center_crop_box(src_w: int, src_h: int, dst_w: int, dst_h: int) -> tuple[int
     src_aspect = src_w / src_h
     if src_aspect > target_aspect:
         crop_h = src_h
-        crop_w = min(src_w, max(1, int(round(src_h * target_aspect))))
+        crop_w = min(src_w, max(1, round(src_h * target_aspect)))
         return (src_w - crop_w) // 2, 0, crop_w, crop_h
     crop_w = src_w
-    crop_h = min(src_h, max(1, int(round(src_w / target_aspect))))
+    crop_h = min(src_h, max(1, round(src_w / target_aspect)))
     return 0, (src_h - crop_h) // 2, crop_w, crop_h
 
 

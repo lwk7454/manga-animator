@@ -48,7 +48,8 @@ def offset_subtitles(tracks: list[tuple[float, str]]) -> str:
             start_s, end_s = _parse_range(lines[1])
             text = "\n".join(lines[2:])
             entries.append(
-                f"{index}\n{_fmt_srt_ts(start_s + offset)} --> {_fmt_srt_ts(end_s + offset)}\n{text}\n"
+                f"{index}\n{_fmt_srt_ts(start_s + offset)} --> "
+                f"{_fmt_srt_ts(end_s + offset)}\n{text}\n"
             )
             index += 1
     return "\n".join(entries)

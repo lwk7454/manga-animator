@@ -61,8 +61,10 @@ def test_i2v_graph_first_frame_only():
 
 
 def test_center_crop_3x4_to_9x16():
+    # 480x640 is 3:4; target 9:16 crops width to 640*(9/16)=356 centered
     x, y, w, h = center_crop_box(480, 640, 480, 864)
-    assert x == 0 and w == 480 and h == 640
+    assert y == 0 and h == 640
+    assert w == 356 and x == (480 - 356) // 2
 
 
 def test_center_crop_writes(tmp_path: Path):
