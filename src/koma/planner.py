@@ -131,15 +131,22 @@ def spec_ratios_for_shot(
     width, height = DEFAULT_GRIDS.get(ratio, (864, 480))
     if ratio not in DEFAULT_GRIDS:
         raise InvalidTransition(f"unsupported ratio {ratio} for spec")
-    # subject placement defaults: center, fit inside with 5% margin
-    placement = {"scale": "fit_contain", "margin_pct": 0.05}
+    # EXPAND policy (owner directive): the scene evidence is fitted INSIDE
+    # the delivery canvas — the model generates surroundings to fill the
+    # rest. Panel content is never cropped away by ratio conversion.
+    placement = {
+        "scale": "fit_contain",
+        "margin_pct": 0.05,
+        "canvas_fill": "expand_environment",
+        "crop_policy": "never_crop_panel_content",
+    }
     return shots.add_ratio_spec(
         shot_revision_id,
         ratio,
         target_width=width,
         target_height=height,
         placement=placement,
-        framing_note=f"canvas {width}x{height} for {ratio}",
+        framing_note=f"canvas {width}x{height} for {ratio}; scene fitted, environment expanded",
         reference_manifest=[],  # filled from bindings at dispatch
         generation_profile=profile,
         dependency_fingerprint=fingerprint_spec(

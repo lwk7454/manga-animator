@@ -161,6 +161,53 @@ def propose_reading_order(
 # ── import ───────────────────────────────────────────────────────────────────
 
 
+def _write_panels_index(
+    page_path: Path,
+    panels: list[Panel],
+    panels_dir: Path,
+    *,
+    width: int,
+    height: int,
+) -> None:
+    """Persist bbox provenance for scene crops (source page + per-panel bbox).
+
+    Written per page (panels_index.json in the panels dir); idempotent —
+    an existing index for the same page+panels is never rewritten.
+    """
+    import json
+
+    index_path = panels_dir / "panels_index.json"
+    entry = {
+        "source_page": page_path.name,
+        "page_w": width,
+        "page_h": height,
+        "panels": {
+            pn.panel_id: {
+                "bbox_x": pn.bbox.x,
+                "bbox_y": pn.bbox.y,
+                "bbox_w": pn.bbox.w,
+                "bbox_h": pn.bbox.h,
+                "order": pn.order,
+            }
+            for pn in panels
+        },
+    }
+    existing: dict = {}
+    if index_path.exists():
+        try:
+            existing = json.loads(index_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+    if existing.get(entry["source_page"]) == entry["panels"]:
+        return
+    existing[entry["source_page"]] = entry["panels"]
+    existing["_pages"] = {
+        **existing.get("_pages", {}),
+        entry["source_page"]: {"page_w": width, "page_h": height},
+    }
+    index_path.write_text(json.dumps(existing, ensure_ascii=False, indent=1))
+
+
 def _write_panel_crops(page_path: Path, panels: list[Panel], panels_dir: Path) -> None:
     """Write one panel.png crop per panel (idempotent)."""
     import cv2
@@ -294,7 +341,11 @@ def import_chapter(
 
         # Panel crops (derived artifacts: source page + bbox are canonical).
         # Idempotent — existing crops are never rewritten.
-        _write_panel_crops(target, panels, store.chapter_dir(slug, chapter) / "panels")
+        panels_dir = store.chapter_dir(slug, chapter) / "panels"
+        _write_panel_crops(target, panels, panels_dir)
+        _write_panels_index(
+            target, panels, panels_dir, width=width, height=height
+        )
         page = Page(
             chapter=chapter,
             page_number=len(out) + 1,

@@ -68,7 +68,11 @@ def build_colored_r2v_prompt(
             parts.append(
                 f"{tag} is the source panel: story and composition evidence. "
                 f"Recolor the entire scene from the approved colored character sheet; "
-                f"do not preserve black-and-white or screentone."
+                f"do not preserve black-and-white or screentone. "
+                f"Keep every visible character, object and action from the panel "
+                f"inside the frame — fit the full scene and EXPAND the environment "
+                f"(generated room, background and floor) to fill the target canvas; "
+                f"never crop panel content to match the aspect ratio."
             )
         elif role == "appearance_evidence":
             parts.append(
