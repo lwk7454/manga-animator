@@ -152,10 +152,14 @@ def validate_schema(graph, info):
                 # V3 autogrow schemas can expose a group instead of flattened sockets.
                 group = declared.get("ref_images", [None, {}])
                 template = group[1].get("template", {}) if len(group) > 1 else {}
+                prefix = "ref_images.ref_image_"
+                index = name.removeprefix(prefix)
                 if (
-                    name == "ref_images.ref_image_0"
+                    name.startswith(prefix)
+                    and index.isdecimal()
+                    and str(int(index)) == index
                     and template.get("prefix") == "ref_image_"
-                    and template.get("max", 0) >= 1
+                    and int(index) < template.get("max", 0)
                 ):
                     fields = template.get("input", {})
                     choices = {**fields.get("required", {}), **fields.get("optional", {})}

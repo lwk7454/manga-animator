@@ -170,7 +170,15 @@ def install_run_endpoints(app, worker_builder, registry: RunRegistry) -> None:
             )
         worker = worker_builder()
         try:
-            out = worker.reconcile_uncertain(attempt_id, worker.owner_epoch)
+            from starlette.concurrency import run_in_threadpool
+
+            def recover():
+                try:
+                    return worker.reconcile_uncertain(attempt_id, worker.owner_epoch)
+                finally:
+                    worker.store.db.close()
+
+            out = await run_in_threadpool(recover)
         except NotFound as exc:
             raise HTTPException(404, str(exc)) from exc
         except (InvalidTransition, RevisionConflict) as exc:

@@ -1,9 +1,9 @@
 # manga-animator
 
-> **Current status (20 September 2026):** the standalone R2V probe is usable;
+> **Current status (21 September 2026):** the standalone R2V probe is usable;
 > the local console and shot assembly are partial workflow components. Colored
 > reference generation and scene reconstruction are not implemented. Production
-> web generation requires an explicitly configured transport; assembly is an
+> web generation of existing compiled work uses the local ComfyUI transport; assembly is an
 > explicit preview until approved script/voice and chapter-export integration land.
 > See the review checkpoint in [PLAN.md](PLAN.md) for milestone status.
 
@@ -24,6 +24,27 @@ Run them without the browser using `python -m koma.r2v_probe run --help`; the
 cover preflight, submission, resume and evidence capture. They are structurally
 tested, not hardware-qualified. The existing `render` CLI
 still uses the old I2V/keyframe path; integration awaits a successful output test.
+
+## Local worker transport
+
+To attach the web worker to a local ComfyUI server:
+
+```sh
+KOMA_COMFY_BASE=http://127.0.0.1:8188 koma serve --data-dir /path/to/koma-data
+```
+
+Without `KOMA_COMFY_BASE`, generation remains unavailable (503). The setting
+accepts loopback or literal private LAN addresses; proxies and redirects are
+blocked. The worker resolves reference files from stored artifact IDs, validates
+the installed graph schema, uploads references, submits once, polls, downloads,
+decodes and promotes a pending motion candidate. Busy queues/upload failures
+remain prepared; uncertain submissions reconcile by exact request/server identity.
+
+This executes **existing compiled motion work** through `POST /api/v1/runs`;
+it does not yet create work from shot plans. Automatic planning/compilation,
+colored reference proposals, reframing, and complete production assembly remain
+unfinished. Existing approvals are required. This integration is software-tested,
+not yet exercised on the 3090, and does not certify color or motion quality.
 
 ## Earlier implementation status
 

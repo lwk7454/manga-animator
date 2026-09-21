@@ -273,6 +273,12 @@ class TestProbeValidation(unittest.TestCase):
             },
         }
         self.assertTrue(validate_schema(graph, info))
+        graph["2"]["inputs"]["ref_images.ref_image_8"] = ["1", 0]
+        self.assertTrue(validate_schema(graph, info))
+        graph["2"]["inputs"]["ref_images.ref_image_9"] = ["1", 0]
+        with self.assertRaisesRegex(ProbeError, "unrecognized"):
+            validate_schema(graph, info)
+        del graph["2"]["inputs"]["ref_images.ref_image_9"]
         info["Ref"]["input"] = {}
         with self.assertRaisesRegex(ProbeError, "unrecognized"):
             validate_schema(graph, info)

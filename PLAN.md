@@ -5,6 +5,42 @@
 
 This section, R0–R9, is the active implementation sequence. It supersedes conflicting requirements in the retained historical plan below. Preserve compatible reliability, audio, import and storage contracts; do not repeat completed work. The owner reports that the programmatic R2V test worked. That establishes an owner-reported successful run, not measured visual quality, memory, throughput or full application qualification. Preserve current generated work and state.
 
+## Execution integration checkpoint — 21 September 2026
+
+The local ComfyUI transport is now implemented and can be configured with
+`KOMA_COMFY_BASE` when starting `koma serve`. It executes existing frozen direct-R2V
+work using the probe's local-only client, installed schema check and decoded-video
+validator. It resolves uploads from artifact records and verifies manifest hashes,
+series, socket mappings and canvas. It records reference dependencies on promotion.
+No source file path supplied by a request is used to select uploads.
+
+A retry-safe preparation hook runs after durable intent and before the submission
+boundary. Busy queues and failed uploads leave the same attempt prepared. POST
+uncertainty still uses find-or-hold with exact request identity, server and graph;
+missing recent history never authorizes resubmission. API reconciliation runs off
+the event loop so network polling does not block read-only requests. Multi-reference
+schema validation now checks each dynamic socket against installed capacity.
+
+**Status correction to the R5 row below:** the real transport and environment-based
+web wiring now exist. Unconfigured servers still return 503. Shot-plan→compiled-work
+creation, frozen-run orchestration, resource controls and hardware qualification
+remain open. This change does not complete R5 or the colored/reframed workflow.
+
+**What can be implemented without GPU smoke tests:** artifact and approval flows,
+shot-plan/work materialization, retry/recovery orchestration, script/voice integration,
+assembly/export contracts, and the workflow UI. Use deterministic integration tests
+and real FFmpeg tests for these paths.
+
+**What needs small 3090 experiments before choosing a production recipe:** approved
+colored-reference influence, ratio-specific scene reconstruction, composition as
+R2V reference versus I2V first frame, and natural-speed motion. Keep these experiments
+programmatic. Compare routes on the same source/reference set and seeds, record
+wall time/peak memory, inspect both ratios, and require owner approval for references
+and quality decisions. Do not build a mandatory composition stage or claim a route
+works from mocked transport tests. The first live integration check should exercise
+one already-compiled approved shot, recovery by the same prompt ID, and both ratio
+legs; run the separate visual acceptance matrix before declaring the product ready.
+
 ## Review checkpoint — 20 September 2026 (through upstream `6be159d`)
 
 This checkpoint supersedes session-report claims that R0–R8 are finished or only GPU qualification remains. Code and tests exist for parts of each milestone, but there is no complete colored/reframed production workflow. The fixes accompanying this checkpoint do not implement the missing creative stages.

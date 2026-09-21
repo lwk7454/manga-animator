@@ -75,7 +75,8 @@ class R2VWorker:
         lock: OwnerLock,
         *,
         owner_label: str = "r2v-worker",
-        submitter=None,  # (graph, upload_plan) -> prompt_id
+        submitter=None,  # (graph, upload_plan, context) -> prompt_id
+        preparer=None,  # (graph, upload_plan, spec) -> None; retry-safe before POST
         poller=None,  # (prompt_id) -> str status
         fetcher=None,  # (prompt_id, target_dir) -> list[dict] artifacts
         validator=None,  # (artifacts, spec) -> list[dict] validated
@@ -86,6 +87,7 @@ class R2VWorker:
         self.lock = lock
         self.owner_epoch = f"r2v-worker-{time.time_ns()}"
         self._submitter = submitter
+        self._preparer = preparer
         self._poller = poller
         self._fetcher = fetcher
         self._validator = validator
@@ -286,6 +288,10 @@ class R2VWorker:
                     "UPDATE attempts SET server_identity=? WHERE id=? AND owner_epoch=?",
                     (self.server_identity, attempt_id, epoch),
                 )
+            if self._preparer is not None:
+                self._preparer(graph, upload_plan, {**spec, "ratio": job.ratio})
+            # Approval can change during uploads; fence again before dispatch.
+            self._check_production(job)
             self.store.begin_submission(attempt_id, epoch)
             try:
                 prompt_id = self._submitter(

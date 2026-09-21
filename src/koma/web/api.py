@@ -272,8 +272,22 @@ class AppFactory:
         from .runs import RunRegistry, install_run_endpoints
         from .static_mount import install_static
 
-        # No fake production worker: transport must be explicitly configured.
-        install_run_endpoints(app, self.worker_builder, RunRegistry())
+        # Configuration enables execution of already compiled work. It does not
+        # qualify visual quality or implicitly create/approve a shot plan.
+        worker_builder = self.worker_builder
+        if worker_builder is None:
+            import os
+
+            from ..network import require_local_endpoint
+            from ..r2v_transport import build_worker
+
+            server = os.environ.get("KOMA_COMFY_BASE")
+            if server:
+                server = require_local_endpoint(server)
+
+                def worker_builder():
+                    return build_worker(self.ctx.db, server)
+        install_run_endpoints(app, worker_builder, RunRegistry())
 
         def assembly_builder():
             from ..shot_assembly import AssemblyService
