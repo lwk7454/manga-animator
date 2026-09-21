@@ -19,7 +19,7 @@ def test_scene_bbox_union_with_margin():
                "page_w": 1280, "page_h": 2048},
     }
     box = scene_bbox(["p1", "p2"], geometry)
-    # union: x 554..1167 ∪ 139..870 → 139..1167; y 159..977 ∪ 1196..2023
+    # union: x 554..1167 + 139..870 -> 139..1167; y 159..977 + 1196..2023
     # margin = 2% of union size (1028x1864) ≈ 20/37 per axis
     assert box["x"] <= 139 and box["w"] >= 1167 - 139
     assert box["y"] <= 159 and box["y"] >= 159 - 40
@@ -65,10 +65,8 @@ def test_fit_contain_keeps_everything():
 
 
 def test_panels_index_written(tmp_path: Path):
+    from koma.models.domain import BBox, Panel, PanelState
     from koma.steps.ingest import _write_panels_index
-    from koma.models.domain import BBox, Panel
-
-    from koma.models.domain import PanelState
 
     panels = [
         Panel(panel_id="ch01_p001_01", bbox=BBox(x=5, y=6, w=100, h=200),
