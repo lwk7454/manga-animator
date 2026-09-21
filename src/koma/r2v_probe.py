@@ -93,8 +93,22 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def _canonicalize_numbers(obj):
+    """ComfyUI coerces integer widget values (e.g. CreateVideo fps: 24) to
+    floats when persisting the executed graph. Canonicalize integral floats
+    to ints so a frozen-work hash matches the remote record."""
+    if isinstance(obj, dict):
+        return {k: _canonicalize_numbers(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_canonicalize_numbers(v) for v in obj]
+    if isinstance(obj, float) and obj.is_integer():
+        return int(obj)
+    return obj
+
+
 def graph_hash(graph):
-    return hashlib.sha256(json.dumps(graph, sort_keys=True).encode()).hexdigest()
+    canonical = _canonicalize_numbers(graph)
+    return hashlib.sha256(json.dumps(canonical, sort_keys=True).encode()).hexdigest()
 
 
 def save(path, payload):
