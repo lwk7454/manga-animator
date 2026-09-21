@@ -90,11 +90,18 @@ def propose_shots_from_beats(
 
 
 def _emit(
-    series_id: str, chapter_id: str, group: list[dict[str, Any]], shots: ShotStore
+    series_id: str,
+    chapter_id: str,
+    group: list[dict[str, Any]],
+    shots: ShotStore,
+    geometry: dict[str, dict[str, int]] | None = None,
 ) -> dict[str, Any]:
+    from .scenes import order_source_panels
+
     panel_ids: list[str] = []
     for b in group:
         panel_ids.extend(b["source_panel_ids"])
+    panel_ids = order_source_panels(panel_ids, geometry)
     purpose = (
         "dialogue delivery"
         if any(b["dialogue_line_ids"] for b in group)

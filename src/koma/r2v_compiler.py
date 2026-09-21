@@ -85,7 +85,7 @@ def compile_shot_graph(
     ref_inputs: dict[str, list] = {"ref_image_0": [panel_node, 0]}
     slot = 1
     for m in reference_manifest:
-        if m["role"] == "story_composition":
+        if m["role"] in ("story_composition", "composition_i2v_first_frame"):
             continue
         node_key = f"Lref_image_{slot}"
         graph[node_key] = {

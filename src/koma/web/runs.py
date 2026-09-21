@@ -131,6 +131,16 @@ def install_run_endpoints(app, worker_builder, registry: RunRegistry) -> None:
         worker = worker_builder()
         jobs = worker.assemble_jobs(body.chapter_id, body.ratios)
         if not jobs:
+            from ..application.compile_work import plan_chapter_work
+
+            created = plan_chapter_work(
+                worker.store, body.chapter_id, body.ratios,
+                caption=body.caption if hasattr(body, "caption") else "",
+            )
+            if not created:
+                raise HTTPException(404, "no shot plans for chapter/ratios")
+            jobs = worker.assemble_jobs(body.chapter_id, body.ratios)
+        if not jobs:
             raise HTTPException(404, "no pending motion work for chapter/ratios")
         started = [registry.start(worker, j) for j in jobs]
         return {"enqueued": started}

@@ -50,17 +50,24 @@ class ComfyR2VTransport:
         self._prepared_hash = None
         shots = ShotStore(self.db)
         ready = shots.require_production_ready(spec["shot_revision_id"], spec["ratio"])
-        if ready["route"] != "direct_r2v":
-            raise ProbeError("only direct_r2v transport is implemented")
         ratio = shots.get_ratio_spec(spec["shot_revision_id"], spec["ratio"])
-        manifest = ratio["reference_manifest"]
+        manifest = spec.get("reference_manifest") or ratio["reference_manifest"]
         validate_manifest_against_capacity(manifest)
+        is_i2v = ready["route"] == "composition_assisted" and (
+            graph.get("136", {}).get("class_type") == "MiniMaxH3ImageToVideo"
+        )
+        if ready["route"] not in ("direct_r2v", "composition_assisted"):
+            raise ProbeError(f"unsupported production route {ready['route']}")
+        if ready["route"] == "composition_assisted" and not is_i2v:
+            raise ProbeError(
+                "composition_r2v_ref transport not implemented; use i2v_first_frame"
+            )
         inputs = graph["136"]["inputs"]
         compile_prompt_with_tags(inputs["prompt"], manifest)
         if (inputs["width"], inputs["height"]) != (ratio["target_width"], ratio["target_height"]):
             raise ProbeError("graph canvas differs from frozen ratio specification")
         expected_slots = {f"ref_images.{m['slot_key']}" for m in manifest}
-        if {k for k in inputs if k.startswith("ref_images.")} != expected_slots:
+        if not is_i2v and {k for k in inputs if k.startswith("ref_images.")} != expected_slots:
             raise ProbeError("graph reference sockets differ from frozen manifest")
         if len(uploads) != len(manifest):
             raise ProbeError("upload plan differs from frozen reference manifest")

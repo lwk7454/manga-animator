@@ -248,14 +248,13 @@ class R2VWorker:
             self.lock.release(owner)
 
     def _check_production(self, job):
-        from .storage.shot_store import ShotStore
+        from .application.production_gate import check_production_route
 
         shot_revision = job.desired_spec.get("shot_revision_id")
         if not shot_revision:
             raise BlockedPrerequisite("production work requires shot_revision_id")
-        ready = ShotStore(self.store.db).require_production_ready(shot_revision, job.ratio)
-        if ready["route"] != "direct_r2v":
-            raise BlockedPrerequisite("composition-assisted execution is not implemented")
+        adapter_role = job.desired_spec.get("adapter_role", "")
+        check_production_route(self.store.db, shot_revision, job.ratio, adapter_role)
 
     def _drive(self, attempt_id: str, job: ShotRatioJob, epoch: str) -> ExecutionOutcome:
         spec = job.desired_spec

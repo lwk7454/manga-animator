@@ -46,7 +46,7 @@ def test_configured_server_builds_real_worker_without_contacting_gpu(tmp_path, m
             "/api/v1/runs", headers={"x-koma-csrf": token}, json={"chapter_id": "missing"}
         )
         assert response.status_code == 404
-        assert "no pending motion work" in response.text
+        assert "no shot plans for chapter/ratios" in response.text
 
 
 def AppContext_open(tmp_path: Path):
