@@ -137,8 +137,11 @@ def generate_review_page(
             ).decode()
         else:
             okb64 = ""
-        low = {i for i, pn in enumerate(page.panels) if pn.order is None} if not ok else set()
+        low = {i for i, pn in enumerate(page.panels) if pn.needs_review or pn.order is None}
         cards.append(_panel_html(page, okb64, low))
+        if any(pn.needs_review for pn in page.panels):
+            cards.append("<p>Crop masks/ownership need review. Use the local mask checkout, "
+                         "submit and approve commands before certifying order.</p>")
     pages_html = "".join(cards) or "<p>Nothing awaiting order review. 🎉</p>"
     html = (
         _REVIEW_HTML.replace("{{slug}}", slug)
@@ -230,6 +233,32 @@ def _certify_by_ids(
     page = next((p for p in pages if p.page_number == page_number), None)
     if page is None:
         raise ValueError(f"page {page_number} not found")
+    from ..storage.crop_store import CropStore
+    from ..storage.domain_store import KomaStore
+
+    db_store = KomaStore.open(store.data_dir)
+    try:
+        CropStore(db_store.db).require_approved([pn.panel_id for pn in page.panels])
+        canonical = next((p for p in db_store.load_pages(slug, page.chapter)
+                          if p["source_path"] == page.source_path), None)
+        if canonical:
+            row = CropStore(db_store.db).latest(canonical["id"])
+            if row and json.loads(row["payload"])["reading_order"] != desired_panel_ids:
+                from ..application.crops import replay_page
+                from ..crops import Annotation
+
+                annotation = Annotation.model_validate_json(row["payload"])
+                annotation.reading_order = desired_panel_ids
+                # This endpoint is an explicit human order-certification action.
+                revision = CropStore(db_store.db).submit(
+                    canonical["id"], annotation, expected_revision=row["revision"]
+                )
+                CropStore(db_store.db).approve(
+                    canonical["id"], expected_revision=revision, actor="order-review"
+                )
+                replay_page(db_store, slug, page.chapter, canonical["id"])
+    finally:
+        db_store.db.close()
     expected_rev = store.page_order_revision(slug, page.chapter, page_number)
     op = (
         f"order:{slug}:{page.chapter}:{page_number}:{expected_rev}:"

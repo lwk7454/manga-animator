@@ -76,11 +76,21 @@ def bindings_for_shot(store: KomaStore, shot: dict[str, Any]) -> list[dict[str, 
 
 
 def panel_artifact(store: KomaStore, panel_id: str) -> dict[str, Any]:
+    from ..storage.crop_store import CropStore
+
+    CropStore(store.db).require_approved([panel_id])
     with store.db.transaction() as conn:
+        crop = conn.execute(
+            "SELECT c.annotation_hash FROM crop_annotations c "
+            "JOIN panels p ON p.page_id=c.page_id WHERE p.id=? "
+            "ORDER BY c.revision DESC LIMIT 1", (panel_id,),
+        ).fetchone()
         row = conn.execute(
             "SELECT * FROM artifacts WHERE scope_key=? AND kind='panel' "
-            "AND validation_status='validated' ORDER BY created_at DESC",
-            (panel_id,),
+            "AND validation_status='validated' "
+            + ("AND input_fingerprint=? " if crop else "")
+            + "ORDER BY created_at DESC",
+            (panel_id, crop[0]) if crop else (panel_id,),
         ).fetchone()
     if row is None:
         raise NotFound(f"validated panel artifact for {panel_id}")

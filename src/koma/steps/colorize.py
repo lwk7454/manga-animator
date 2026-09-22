@@ -51,7 +51,7 @@ def queue_colorize(
             if chapter is not None and ch != chapter:
                 continue
             color = store.chapter_dir(slug, ch) / "panels" / p.panel_id / "color.png"
-            panel_png = store.chapter_dir(slug, ch) / "panels" / p.panel_id / "panel.png"
+            panel_png = store.panel_image_path(slug, ch, p.panel_id)
             color.parent.mkdir(parents=True, exist_ok=True)
             color.write_bytes(panel_png.read_bytes())
             store.set_panel_state(slug, p.panel_id, PanelState.COLORIZED)
@@ -97,8 +97,7 @@ def queue_colorize(
                 "panel_id": panel.panel_id,
                 "chapter": ch,
                 "profile": profile_id,
-                "panel_png": str(store.chapter_dir(slug, ch) / "panels" / panel.panel_id /
-                    "panel.png"),
+                "panel_png": str(store.panel_image_path(slug, ch, panel.panel_id)),
                 "sheet_png": str(sheet_path) if sheet_path else "",
                 "output_png": str(
                     store.chapter_dir(slug, ch) / "panels" / panel.panel_id / "color.png"

@@ -308,6 +308,24 @@ class ShotStore:
             else:
                 participants.update(json.loads(beat["participants"]))
         panel_ids = json.loads(shot["source_panel_ids"])
+        from .crop_store import crop_blockers
+
+        blockers.extend(crop_blockers(conn, panel_ids))
+        # An already-frozen panel reference must not survive a new crop revision.
+        for ref in json.loads(spec["reference_manifest"]):
+            artifact = conn.execute(
+                "SELECT scope_key, kind, input_fingerprint FROM artifacts WHERE id=?",
+                (ref.get("artifact_id"),),
+            ).fetchone()
+            if artifact is None or artifact["kind"] != "panel":
+                continue
+            crop = conn.execute(
+                "SELECT c.annotation_hash FROM crop_annotations c "
+                "JOIN panels p ON p.page_id=c.page_id WHERE p.id=? "
+                "ORDER BY c.revision DESC LIMIT 1", (artifact["scope_key"],),
+            ).fetchone()
+            if crop and artifact["input_fingerprint"] != crop["annotation_hash"]:
+                blockers.append("panel reference has an outdated crop revision; recompile")
         occurrences = conn.execute(
             "SELECT * FROM asset_occurrence_bindings WHERE series_id=?", (shot["series_id"],)
         ).fetchall()

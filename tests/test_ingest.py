@@ -16,7 +16,7 @@ from koma.steps.ingest import (
     propose_reading_order,
 )
 from koma.storage.series_store import SeriesStore
-from tests.helpers import PAGE_H, PAGE_W, PANELS_GRID, draw_page
+from tests.helpers import PAGE_H, PAGE_W, PANELS_GRID, approve_fixture_crops, draw_page
 
 runner = CliRunner()
 
@@ -126,6 +126,7 @@ class TestIngestCLI:
         d = tmp_path / "data"
         runner.invoke(app, ["new", "c1", "--direction", "rtl", "--data-dir", str(d)])
         runner.invoke(app, ["ingest", "c1", str(src), "--data-dir", str(d)])
+        approve_fixture_crops(d, "c1")
         r = runner.invoke(
             app, ["certify", "c1", "--page", "1", "--swap", "0,1", "--data-dir", str(d)]
         )

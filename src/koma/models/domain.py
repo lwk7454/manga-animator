@@ -131,6 +131,11 @@ class Panel(BaseModel):
     prompt_id: str | None = None  # ComfyUI prompt_id when queued
     error: str | None = None
     retries: int = 0
+    # Derived mask metadata; canonical annotations/reviews live in SQLite.
+    mask_path: str | None = None
+    crop_path: str | None = None
+    ownership_hash: str | None = None
+    needs_review: bool = False  # legacy rectangle-only pages retain their behavior
     updated_at: datetime = Field(default_factory=utcnow)
 
 
