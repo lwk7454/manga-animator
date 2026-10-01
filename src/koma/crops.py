@@ -78,6 +78,7 @@ class Annotation(BaseModel):
     # The raw detections are kept even when their masks overlap or get refined.
     proposals: dict[str, Mask] = Field(default_factory=dict)
     dismissed: dict[str, str] = Field(default_factory=dict)
+    semantic: dict = Field(default_factory=dict)
     detector: str = "manual"
 
     @model_validator(mode="after")
@@ -118,8 +119,12 @@ class Annotation(BaseModel):
         )
 
     def canonical_bytes(self) -> bytes:
+        payload = self.model_dump(mode="json")
+        # Keep hashes of pre-semantic persisted revisions stable on upgrade.
+        if not self.semantic:
+            payload.pop("semantic", None)
         return json.dumps(
-            self.model_dump(mode="json"),
+            payload,
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,

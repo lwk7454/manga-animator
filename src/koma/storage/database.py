@@ -28,7 +28,7 @@ from ..log import get_logger
 
 log = get_logger("storage.database")
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 DB_NAME = "koma.sqlite3"
 _BUSY_TIMEOUT_MS = 5000
 
@@ -644,6 +644,21 @@ class Database:
                     "PRIMARY KEY(page_id, revision))"
                 )
                 conn.execute("INSERT INTO schema_migrations VALUES (5, datetime('now'))")
+            if version < 6:
+                conn.execute(
+                    "CREATE TABLE crop_jobs (id TEXT PRIMARY KEY, "
+                    "page_id TEXT NOT NULL REFERENCES pages(id), "
+                    "expected_revision INTEGER NOT NULL, selected_panels TEXT NOT NULL, "
+                    "note TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending' "
+                    "CHECK(state IN ('pending','running','completed','failed','conflict')),"
+                    "result_revision INTEGER, error TEXT NOT NULL DEFAULT '', "
+                    "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
+                )
+                conn.execute(
+                    "CREATE UNIQUE INDEX crop_job_active ON crop_jobs(page_id) "
+                    "WHERE state IN ('pending','running')"
+                )
+                conn.execute("INSERT INTO schema_migrations VALUES (6, datetime('now'))")
             conn.commit()
         except BaseException:
             try:

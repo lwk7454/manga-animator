@@ -1,8 +1,38 @@
 # Local panel masks and deterministic crops
 
-This crop-only stage copies decoded source pixels. It does not generate or
-retouch artwork, call a model, upload a page, download weights, or require a GPU.
-SQLite schema v5 adds one table to v4; existing tables and data are retained.
+This crop-only stage copies decoded source pixels. The existing local VLM makes
+semantic ownership and reading-order decisions; it never draws export pixels or
+generates contours. No cloud service or downloaded weights are used. SQLite
+schema v6 adds annotation and durable job tables; existing data is retained.
+
+## Process and review a chapter
+
+```bash
+KOMA_VISION_BASE_URL=http://192.168.50.103:11434 \
+  koma crop-chapter example /path/to/pages --chapter 1
+```
+
+Use the existing `vision.model` configuration for the loaded model. Omit
+the source folder to process an already imported chapter; `--queue-only` saves
+work without inference. Open `/crops` in the existing web app to inspect original
+pages and numbered transparent crops, correct order/owners, approve inspected
+pages, or select panels and request rework with instructions. Rework looks for
+additional boundary candidates around selected panels and re-adjudicates related
+objects. Donor/recipient panels affected by ownership transfers require review.
+Pixel masks remain editable through the checkout workflow below.
+
+The VLM receives full-page context with panel IDs and native-resolution object
+crops in small batches. Strict JSON must account for every supplied object and
+use existing panel IDs; rationale and confidence flags are persisted. Uncertain
+boundaries always require human inspection, even when the model is confident.
+Only private/loopback model endpoints are accepted by the existing client.
+
+Jobs run sequentially under the application owner lock. Failures remain visible
+and block approval-dependent consumers; other pages continue. Resume queued work
+after a restart. Committed results replay without another VLM call; stale rework
+cannot overwrite manual revisions. Select failed panels and request rework to
+retry. Model calls run outside SQLite transactions. Unload ComfyUI before using
+the shared GPU; this stage does not manage GPU services or load a second model.
 
 ## What is automatic, and what needs review
 
@@ -21,7 +51,7 @@ final ownership or component masks, empty panels, invalid IDs, bad dimensions,
 source hash changes and malformed runs fail closed. No invented inpainting fills
 the hole left by a transferred component.
 
-There is no SAM, Magi, Manga-Segment, or VLM integration in this crop-only change.
+There is no SAM, Magi, or Manga-Segment dependency in this change.
 No third-party model code or weights are bundled. The existing OpenCV fallback
 and its attribution remain; no new runtime dependency is added. Human-reviewed
 masks, not the initial proposal quality, provide the pixel ownership guarantee.
@@ -133,7 +163,12 @@ source alpha, disjoint masks, byte replay, scene holes, corrupt masks, stale edi
 explicit approval, artifact registration and SQLite-only replay authority.
 The existing suite's hardcoded `/tmp/koma-qual` fixture was made hermetic.
 
-No real-page quality benchmark or GPU evaluation was performed. Semantic ownership
-and fine boundaries still need human correction. There is no browser mask painter;
+No real-page quality benchmark or GPU evaluation was performed: the private GPU
+host was unreachable from the development environment. Before production use,
+run a chapter on that host, inspect difficult overlapping layouts and check local
+VLM latency/JSON behavior. Synthetic tests cover model replies, durable failures,
+restart recovery, stale edits, and web approval/rework. Connected ink and light
+regions are imperfect proposals; fine hair and intertwined silhouettes may need
+manual mask correction. There is no browser mask painter;
 the editable PNG checkout is the local editing interface. Existing panel creation/
 deletion and source-replacement workflows remain separate from this feature.

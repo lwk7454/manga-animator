@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>koma — panel review</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{color-scheme:dark}body{margin:0;background:#10151b;color:#dde5ed;font:15px/1.5 system-ui}
+header,main{max-width:1400px;margin:auto;padding:20px}header{display:flex;gap:20px;align-items:center}
+h1{font-size:22px;margin:0}h2{font-size:18px}a{color:#90c8ff}button,input,select,textarea{font:inherit;
+background:#202d3b;color:inherit;border:1px solid #47596c;border-radius:6px;padding:7px}
+button{cursor:pointer}button:disabled{opacity:.5;cursor:wait}.controls{display:flex;gap:10px;flex-wrap:wrap}
+.page{border:1px solid #344353;border-radius:10px;padding:18px;margin:20px 0;background:#18212b}
+.panels{display:flex;gap:12px;flex-wrap:wrap}.panel{width:220px;padding:10px;border:1px solid #456;border-radius:8px}
+.panel img{width:100%;height:250px;object-fit:contain;cursor:zoom-in;background-color:#adb4bc;
+background-image:conic-gradient(#dce1e7 25%,transparent 0 50%,#dce1e7 0 75%,transparent 0);background-size:20px 20px}
+.source{max-width:160px;max-height:210px;cursor:zoom-in;float:right;margin-left:15px}
+.meta{color:#b7c8da;font-size:13px}.warning{color:#ffd47c}#error{color:#ffafaf;white-space:pre-wrap}
+.order{width:52px}.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+textarea{width:min(95%,650px);height:55px;margin-top:12px}details{margin:15px 0}table{width:100%;border-collapse:collapse}
+td,th{text-align:left;padding:7px;border-bottom:1px solid #345}dialog{max-width:95vw;max-height:95vh}
+dialog img{max-width:90vw;max-height:85vh;object-fit:contain}#empty{color:#a6b9cc}
+</style></head><body>
+<header><a href="/">← Console</a><h1>Panel crop review</h1></header><main>
+<div class="controls"><select id="chapter" aria-label="Chapter"></select>
+<button id="load">Load chapter</button><button id="process">Process chapter with local VLM</button>
+<button id="resume">Resume queued work</button></div>
+<p class="meta">Inspect transparent edges, bubbles and reading order. Select panels for rework and describe the correction.
+Click an image to enlarge it. Approval confirms the whole page after visual inspection.</p>
+<p id="error" role="alert"></p><p id="empty"></p><div id="pages"></div>
+<dialog id="zoom"><button id="closeZoom">Close</button><br><img alt="Expanded crop or source page"></dialog>
+<script>
+let csrf='', timer=null, dirty=false; const $=id=>document.getElementById(id);
+document.addEventListener('input',event=>{if(event.target.closest('#pages'))dirty=true});
+function node(tag,text,cls){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el}
+async function api(method,path,body){const r=await fetch('/api/v1/crops'+path,{method,headers:{'Content-Type':'application/json','x-koma-csrf':csrf},body:body?JSON.stringify(body):undefined});const data=await r.json();if(!r.ok)throw Error(data.detail||JSON.stringify(data));return data}
+function current(){const [slug,chapter]=$('chapter').value.split('|');if(!slug)throw Error('Import a chapter first.');return '/chapters/'+encodeURIComponent(slug)+'/'+chapter}
+async function act(fn){$('error').textContent='';try{await fn()}catch(e){$('error').textContent=e.message}}
+function zoom(url){$('zoom').querySelector('img').src=url;$('zoom').showModal()}
+$('closeZoom').onclick=()=>$('zoom').close();
+async function load(){clearTimeout(timer);const data=await api('GET',current());$('pages').replaceChildren();$('empty').textContent=data.pages.length?'':'No crop proposals. Import this chapter using koma ingest or koma crop-chapter.';if(data.worker_error)$('error').textContent=data.worker_error;
+let active=false;for(const page of data.pages){const section=node('section',undefined,'page'), heading=node('h2','Page '+page.number+' · '+page.status+' · revision '+page.revision);section.append(heading);
+const source=node('img');source.className='source';source.src=page.source_url;source.alt='Original page '+page.number;source.onclick=()=>zoom(source.src);section.append(source);
+section.append(node('p',page.order_rationale,'meta'));const job=page.jobs[0];const busy=page.jobs.some(j=>['pending','running'].includes(j.state));active ||=busy;
+if(job)section.append(node('p','Latest request: '+job.state+(job.error?' — '+job.error:''),'warning'));
+if(page.semantic.affected_panels)section.append(node('p','Panels affected by last pass: '+page.semantic.affected_panels.join(', '),'meta'));
+for(const warning of page.semantic.boundary_warnings||[])section.append(node('p',warning,'warning'));
+const cards=node('div',undefined,'panels'), selections=[],orders=[];
+for(const p of page.panels){const card=node('div',undefined,'panel'),label=node('label'),check=node('input');check.type='checkbox';check.value=p.id;check.disabled=busy;selections.push(check);label.append(check,document.createTextNode(' Select '+p.id));card.append(label);
+const order=node('input');order.type='number';order.min=1;order.max=page.panels.length;order.value=p.order;order.className='order';order.setAttribute('aria-label','Reading position for '+p.id);orders.push({id:p.id,input:order});card.append(node('br'),document.createTextNode('Reading position '),order);
+const img=node('img');img.src=p.url;img.alt='Panel '+p.order+' '+p.id;img.loading='lazy';img.onclick=()=>zoom(img.src);card.append(img,node('span',p.needs_review?'Inspect boundary and ownership':'Semantic decision ready','meta'));cards.append(card)}section.append(cards);
+const details=node('details'),summary=node('summary','Bubble / artwork ownership ('+page.components.length+')'),table=node('table'),ownerInputs={};details.append(summary,table);
+for(const c of page.components){const row=node('tr'),owner=node('select');owner.setAttribute('aria-label','Owner of '+c.id);owner.append(new Option('Unassigned',''));for(const id of page.reading_order)owner.append(new Option(id,id));owner.value=c.owner_panel||'';ownerInputs[c.id]=owner;const cell=node('td');cell.append(owner);row.append(node('td',c.id+' ('+c.kind+')'),cell,node('td',c.rationale));table.append(row)}section.append(details);
+const note=node('textarea');note.placeholder='Rework instructions: e.g. the bubble above the skyline belongs to the standing character; include its tail.';note.setAttribute('aria-label','Rework instructions');section.append(note);
+const actions=node('div',undefined,'actions');const rework=node('button','Rework selected panels');rework.disabled=busy;rework.onclick=()=>act(async()=>{const ids=selections.filter(c=>c.checked).map(c=>c.value);if(!ids.length)throw Error('Select at least one panel.');await api('POST','/pages/'+page.id+'/rework',{expected_revision:page.revision,panel_ids:ids,note:note.value});await load()});
+const save=node('button','Save order / ownership edits');save.disabled=busy;save.onclick=()=>act(async()=>{const values=orders.map(o=>+o.input.value);if(values.some(v=>!Number.isInteger(v)||v<1||v>orders.length)||new Set(values).size!==orders.length)throw Error('Use every reading position exactly once.');const reading=orders.slice().sort((a,b)=>+a.input.value-+b.input.value).map(o=>o.id);const owners=Object.fromEntries(Object.entries(ownerInputs).map(([id,el])=>[id,el.value||null]));await api('POST','/pages/'+page.id+'/decisions',{expected_revision:page.revision,reading_order:reading,owners});await load()});
+const inspect=node('input');inspect.type='checkbox';const label=node('label');label.append(inspect,document.createTextNode(' I inspected all masks, overfill, bubbles and order'));
+const actor=node('input');actor.placeholder='Reviewer name';actor.setAttribute('aria-label','Reviewer name');
+const approve=node('button','Approve page');approve.disabled=busy||page.status==='approved';approve.onclick=()=>act(async()=>{if(!inspect.checked||!actor.value.trim())throw Error('Inspect the page, tick confirmation, and enter your name.');await api('POST','/pages/'+page.id+'/approve',{expected_revision:page.revision,actor:actor.value,inspected_masks:true});await load()});
+actions.append(rework,save,label,actor,approve);section.append(actions);$('pages').append(section)}
+// Pause automatic refresh while a reviewer is editing any page.
+dirty=false;
+if(active)timer=setTimeout(()=>{if(!dirty)act(load);else $('empty').textContent='Automatic refresh paused to preserve your edits. Save or load the chapter to refresh.'},3000)}
+$('load').onclick=()=>act(load);$('process').onclick=()=>act(async()=>{await api('POST',current()+'/process',{});await load()});$('resume').onclick=()=>act(async()=>{await api('POST','/resume',{});await load()});
+act(async()=>{const r=await fetch('/api/v1/csrf');csrf=(await r.json()).token;const data=await api('GET','/chapters');for(const ch of data.chapters)$('chapter').append(new Option(ch.slug+' / chapter '+ch.number+' ('+ch.pages+' pages)',ch.slug+'|'+ch.number));if(data.chapters.length)await load();else $('empty').textContent='No chapters yet. Run koma crop-chapter SERIES SOURCE_FOLDER to import and process a chapter.'});
+</script></main></body></html>

@@ -295,6 +295,9 @@ class AppFactory:
             return AssemblyService(self.ctx.db, tts_base=self._tts_base())
 
         install_assembly_endpoints(app, assembly_builder, self.ctx.data_dir)
+        from .crops import install_crop_endpoints
+
+        install_crop_endpoints(app, self.ctx.data_dir)
         install_static(app)
 
         return app

@@ -13,6 +13,20 @@ def crop_blockers(conn, panel_ids: list[str]) -> list[str]:
     """Legacy pages without annotations retain their existing gate behavior."""
     blockers = []
     for pid in panel_ids:
+        pending = conn.execute(
+            "SELECT j.state FROM crop_jobs j JOIN panels p ON p.page_id=j.page_id "
+            "WHERE p.id=? AND j.state IN ('pending','running') LIMIT 1", (pid,),
+        ).fetchone()
+        if pending:
+            blockers.append(f"panel {pid}: crop rework {pending[0]}")
+        failed = conn.execute(
+            "SELECT j.id FROM crop_jobs j JOIN panels p ON p.page_id=j.page_id "
+            "WHERE p.id=? AND j.state='failed' AND j.expected_revision >= "
+            "(SELECT MAX(revision) FROM crop_annotations WHERE page_id=p.page_id) LIMIT 1",
+            (pid,),
+        ).fetchone()
+        if failed:
+            blockers.append(f"panel {pid}: failed crop rework requires review")
         row = conn.execute(
             "SELECT r.decision_status FROM crop_annotations c "
             "JOIN panels p ON p.page_id=c.page_id JOIN reviews r ON r.id=c.review_id "
@@ -138,6 +152,11 @@ class CropStore:
             ).fetchone()[0]
             if latest != expected_revision or row["revision"] != latest:
                 raise RevisionConflict("crop revision changed before approval")
+            if conn.execute(
+                "SELECT 1 FROM crop_jobs WHERE page_id=? AND state IN ('pending','running')",
+                (page_id,),
+            ).fetchone():
+                raise BlockedPrerequisite("crop rework is pending; wait before approval")
             conn.execute(
                 "UPDATE reviews SET decision_status='approved', actor=?, final_decision=?,"
                 "updated_at=? WHERE id=?",
