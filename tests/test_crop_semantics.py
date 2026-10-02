@@ -12,6 +12,7 @@ from koma.application.crop_jobs import (
     enqueue_page,
     local_client,
     process_pending,
+    retry_page,
 )
 from koma.application.crops import replay_page
 from koma.clients import LLMError, OpenAICompatClient
@@ -81,8 +82,26 @@ def test_full_page_semantic_order_and_displaced_bubble(annotated):
     assert result.needs_review  # semantic confidence cannot certify boundary quality
     assert result.semantic["job_id"] == "job"
     assert len(fake.calls) == 2
+    assert len(fake.calls[0]["sizes"]) == 1  # single page for order, avoids duplicate context
     assert len(fake.calls[1]["sizes"]) == 3  # overview, labels, native detail
     assert annotation.reading_order == ["right", "left"]  # no mutation before commit
+
+
+def test_verbatim_prompt_echo_is_valid_but_requires_review(annotated):
+    from koma.steps.crop_semantics import OrderReply, OwnershipReply
+
+    def echo(prompt, reply):
+        response = prompt["response"]
+        schema = OrderReply if prompt["task"] == "reading_order" else OwnershipReply
+        schema.model_validate_json(json.dumps(response))
+        return response
+
+    page, _, annotation = annotated
+    result = adjudicate(page, annotation, FakeVision(echo), "local",
+                        selected_panels=annotation.reading_order)
+    assert result.reading_order == annotation.reading_order
+    assert result.order_needs_review
+    assert all(c.needs_review for c in result.components)
 
 
 @pytest.mark.parametrize("defect", ["missing_owner", "unknown_owner", "duplicate", "bad_order"])
@@ -224,7 +243,8 @@ def test_local_vlm_uses_existing_config_and_public_urls_rejected(monkeypatch):
         local_client()
 
 
-def test_real_adapter_sends_local_data_urls(annotated, respx_mock):
+@pytest.mark.parametrize("suffix", ["", "/", "/v1", "/v1/"])
+def test_real_adapter_sends_local_data_urls(annotated, respx_mock, suffix):
     import httpx
 
     page, _, annotation = annotated
@@ -242,12 +262,60 @@ def test_real_adapter_sends_local_data_urls(annotated, respx_mock):
                 "kind": "bubble", "needs_review": False, "rationale": "tail"}]}
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(reply)}}]})
     route = respx_mock.post("http://127.0.0.1:11434/v1/chat/completions").mock(side_effect=response)
-    client = OpenAICompatClient(base_url="http://127.0.0.1:11434")
+    client = OpenAICompatClient(base_url="http://127.0.0.1:11434" + suffix)
     try:
         adjudicate(page, annotation, client, "local", selected_panels=annotation.reading_order)
     finally:
         client.close()
     assert route.call_count == 2
+
+
+def test_explicit_retry_keeps_failed_job_and_checks_revision(crop_db):
+    from koma.storage.errors import RevisionConflict
+
+    store, page, annotation = crop_db
+    original = enqueue_page(store, page, ["right"], 1, "Keep the tail")
+
+    def offline():
+        raise LLMError("offline")
+
+    process_pending(store, client_factory=offline)
+    new_job = retry_page(store, page)
+    assert new_job["id"] != original["id"]
+    assert new_job["note"] == "Keep the tail"
+    assert json.loads(new_job["selected_panels"]) == ["right"]
+    with pytest.raises(RevisionConflict, match="pending"):
+        retry_page(store, page)
+    process_pending(store, client_factory=offline)
+    annotation.order_rationale = "new human edit"
+    CropStore(store.db).submit(page, annotation, expected_revision=1)
+    with pytest.raises(RevisionConflict, match="stale"):
+        retry_page(store, page)
+
+
+def test_cli_explicit_region_upgrade_is_revisioned_and_queued(crop_db):
+    from typer.testing import CliRunner
+
+    from koma.cli import app
+    from koma.crops import Annotation
+
+    store, page, annotation = crop_db
+    annotation.proposals = {p.id: p.mask for p in annotation.panels}
+    CropStore(store.db).submit(page, annotation, expected_revision=1)
+    before = CropStore(store.db).latest(page)
+    reply = CliRunner().invoke(app, ["crop-retry", page, "--rebuild-regions", "--queue-only",
+                                    "--data-dir", str(store.db.data_dir)])
+    assert reply.exit_code == 0, reply.output
+    after = CropStore(store.db).latest(page)
+    assert after["revision"] == before["revision"] + 1
+    upgraded = Annotation.model_validate_json(after["payload"])
+    assert "region-proposals-v2" in upgraded.detector
+    assert upgraded.needs_review
+    assert all(p.id in upgraded.proposals for p in upgraded.panels)
+    with store.db.transaction() as conn:
+        job = conn.execute("SELECT * FROM crop_jobs WHERE page_id=?", (page,)).fetchone()
+    assert job["expected_revision"] == after["revision"]
+    assert job["state"] == "pending"
 
 
 def test_web_review_rework_csrf_revision_and_media(crop_db):

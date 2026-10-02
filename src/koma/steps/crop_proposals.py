@@ -11,8 +11,31 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from ..crops import Annotation, Component, CropPanel, Mask, digest
-from ..models.domain import Panel
+from ..crops import Annotation, Component, CropPanel, Mask, bounds, digest, source_pixels
+from ..models.domain import BBox, Panel
+
+
+def _panel_region(gray: np.ndarray) -> tuple[np.ndarray, str]:
+    """Close small border gaps, then fill regions unreachable from the exterior.
+
+    Foreground ink alone is not panel geometry. If the border cannot enclose a
+    credible region, retain the detector's rectangular extent as an explicitly
+    uncertain proposal instead of exporting disconnected artwork fragments.
+    Only masks are processed here; closing never modifies exported source pixels.
+    """
+    ink = (gray < 120).astype("uint8")
+    padded = np.pad(ink, 3)
+    closed = cv2.morphologyEx(padded, cv2.MORPH_CLOSE, np.ones((5, 5), "uint8"))
+    exterior = closed.copy()
+    cv2.floodFill(exterior, None, (0, 0), 2)
+    region = (exterior != 2)[3:-3, 3:-3]
+    enclosed = ((exterior == 0) & (closed == 0))[3:-3, 3:-3]
+    if region.mean() >= 0.4 and (enclosed.mean() >= 0.1 or ink.mean() >= 0.65):
+        return region, "Closed-border flood region; inspect repaired gaps and overlap boundaries"
+    return np.ones_like(gray, dtype=bool), (
+        "Unclosed/sparse panel border: provisional full extent retained to avoid lost interiors; "
+        "boundary correction required"
+    )
 
 
 def propose_masks(page: Path, panels: list[Panel], *, direction: str = "rtl") -> Annotation:
@@ -20,28 +43,18 @@ def propose_masks(page: Path, panels: list[Panel], *, direction: str = "rtl") ->
     if gray is None:
         raise ValueError(f"unreadable page {page}")
     height, width = gray.shape
-    _, ink = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY_INV)
-    dilated = cv2.dilate(ink, np.ones((3, 3), np.uint8), iterations=1)
-    contours, _ = cv2.findContours(dilated, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    by_box = {}
-    for contour in contours:
-        box = cv2.boundingRect(contour)
-        if box not in by_box or cv2.contourArea(contour) > cv2.contourArea(by_box[box]):
-            by_box[box] = contour
     proposals = {}
     raw = {}
+    rationales = {}
     for p in panels:
         b = p.bbox
         if b.x < 0 or b.y < 0 or b.x + b.w > width or b.y + b.h > height:
             raise ValueError("panel proposal lies outside source page")
-        mask = np.zeros_like(gray)
-        contour = by_box.get((b.x, b.y, b.w, b.h))
-        if contour is not None:
-            cv2.drawContours(mask, [contour], -1, 255, cv2.FILLED)
-        else:
-            mask[b.y : b.y + b.h, b.x : b.x + b.w] = 255
-        raw[p.panel_id] = mask != 0
-        proposals[p.panel_id] = Mask.encode(mask != 0)
+        mask = np.zeros_like(gray, dtype=bool)
+        roi = np.s_[b.y:b.y + b.h, b.x:b.x + b.w]
+        mask[roi], rationales[p.panel_id] = _panel_region(gray[roi])
+        raw[p.panel_id] = mask
+        proposals[p.panel_id] = Mask.encode(mask)
 
     # Overlap adjudication is provisional: smaller proposals get precedence.
     # Preserve the raw masks above, and flag EVERY panel, including hair edges.
@@ -102,12 +115,48 @@ def propose_masks(page: Path, panels: list[Panel], *, direction: str = "rtl") ->
         width=width,
         height=height,
         direction=direction,
-        panels=[CropPanel(id=p.panel_id, mask=Mask.encode(owned[p.panel_id])) for p in panels],
+        panels=[CropPanel(id=p.panel_id, mask=Mask.encode(owned[p.panel_id]),
+                          rationale=rationales[p.panel_id]) for p in panels],
         components=components,
         proposals=proposals,
         reading_order=[p.panel_id for p in sorted(panels, key=lambda p: p.order or 0)],
-        detector=f"opencv-{cv2.__version__}-contour-proposals-v1",
+        detector=f"opencv-{cv2.__version__}-region-proposals-v2",
+        semantic={"boundary_warnings": [
+            f"{pid}: {reason}" for pid, reason in rationales.items() if "Unclosed" in reason
+        ]},
     )
+
+
+def rebuild_panel_regions(page: Path, annotation: Annotation) -> Annotation:
+    """Explicit opt-in upgrade; replay never changes saved/human-edited geometry."""
+    source_pixels(page, annotation)  # reject changed sources before re-proposing
+    result = Annotation.model_validate_json(annotation.canonical_bytes())
+    panels = []
+    for order, pid in enumerate(result.reading_order, 1):
+        if pid not in result.proposals:
+            raise ValueError("original panel proposals are required to rebuild regions")
+        box = bounds(result.proposals[pid].array(result.width, result.height))
+        panels.append(Panel(panel_id=pid, bbox=BBox(**box), order=order))
+    proposal = propose_masks(page, panels, direction=result.direction)
+    result.panels = proposal.panels
+    for pid in result.reading_order:
+        result.proposals[f"region_v2_{pid}"] = proposal.proposals[pid]
+    # Old connected-ink refinements describe the old fragmented geometry.
+    # Keep their evidence but rediscover them against the new base regions.
+    kept = []
+    for component in result.components:
+        if component.id.startswith("overfill_"):
+            result.proposals.setdefault(component.id, component.mask)
+            result.dismissed[component.id] = "Superseded by explicit base-region rebuild"
+        else:
+            component.needs_review = True
+            kept.append(component)
+    result.components = kept
+    result.detector = proposal.detector
+    result.order_needs_review = True
+    result.semantic = {"boundary_warnings": [p.rationale for p in proposal.panels],
+                       "region_rebuild": True}
+    return result
 
 
 def add_overfill_candidates(
@@ -158,6 +207,10 @@ def add_overfill_candidates(
         mask[roi] = local_mask
         cid = (f"overfill_{refinement_key[:12]}_{label:05d}" if refinement_key
                else f"overfill_{label:05d}")
+        base_id, revision = cid, 1
+        while cid in result.proposals or cid in result.dismissed:
+            cid = f"{base_id}_r{revision}"
+            revision += 1
         result.proposals[cid] = Mask.encode(mask)
         if area > 0.15 * gray.size or len(result.components) >= 240:
             warnings.append(f"{cid}: intertwined/large ink region; boundary review required")

@@ -86,6 +86,50 @@ def _finish(store, job_id: str, state: str, *, revision=None, error="") -> None:
         )
 
 
+def retry_page(store, page_id: str, *, rebuild_regions: bool = False) -> dict:
+    """Explicit retry creates a new request and keeps the failed job as evidence."""
+    crops = CropStore(store.db)
+    row = crops.latest(page_id)
+    if row is None:
+        raise NotFound("page has no crop annotations")
+    annotation = Annotation.model_validate_json(row["payload"])
+    with store.db.transaction() as conn:
+        active = conn.execute(
+            "SELECT 1 FROM crop_jobs WHERE page_id=? AND state IN ('pending','running')",
+            (page_id,),
+        ).fetchone()
+        failed = conn.execute(
+            "SELECT * FROM crop_jobs WHERE page_id=? ORDER BY created_at DESC,id DESC LIMIT 1",
+            (page_id,),
+        ).fetchone()
+        page = conn.execute(
+            "SELECT p.source_path,s.slug,c.number AS chapter FROM pages p "
+            "JOIN series s ON s.id=p.series_id JOIN chapters c ON c.id=p.chapter_id "
+            "WHERE p.id=? AND p.deleted=0", (page_id,),
+        ).fetchone()
+    if active:
+        raise RevisionConflict("page already has pending rework")
+    if page is None:
+        raise NotFound("page not found")
+    revision = row["revision"]
+    if rebuild_regions:
+        from ..steps.crop_proposals import rebuild_panel_regions
+
+        source = store.db.data_dir / "series" / page["slug"] / "source" / page["source_path"]
+        annotation = rebuild_panel_regions(source, annotation)
+        revision = crops.submit(page_id, annotation, expected_revision=revision)
+        replay_page(store, page["slug"], page["chapter"], page_id)
+        selected = annotation.reading_order
+        note = "Rebuilt closed panel regions; reassess ownership"
+    else:
+        if failed is None or failed["state"] != "failed":
+            raise ValueError("no failed request to retry; use the web rework action")
+        if failed["expected_revision"] != revision:
+            raise RevisionConflict("failed request is stale; review the current revision")
+        selected, note = json.loads(failed["selected_panels"]), failed["note"]
+    return enqueue_page(store, page_id, selected, revision, note)
+
+
 def process_pending(store, *, client_factory=local_client) -> list[dict]:
     """Caller holds the application owner lock. No model calls in transactions.
 

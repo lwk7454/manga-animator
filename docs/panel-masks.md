@@ -26,6 +26,10 @@ crops in small batches. Strict JSON must account for every supplied object and
 use existing panel IDs; rationale and confidence flags are persisted. Uncertain
 boundaries always require human inspection, even when the model is confident.
 Only private/loopback model endpoints are accepted by the existing client.
+Both server-root URLs and URLs ending in `/v1` (with or without a trailing slash)
+are accepted. Reading order uses one labeled page image and a concrete provisional
+answer; ownership also uses concrete object IDs and JSON types. An unchanged
+echo remains review-required rather than masquerading as a verified decision.
 
 Jobs run sequentially under the application owner lock. Failures remain visible
 and block approval-dependent consumers; other pages continue. Resume queued work
@@ -34,11 +38,43 @@ cannot overwrite manual revisions. Select failed panels and request rework to
 retry. Model calls run outside SQLite transactions. Unload ComfyUI before using
 the shared GPU; this stage does not manage GPU services or load a second model.
 
+Retry a failed request after fixing the endpoint/model configuration:
+
+```bash
+koma crop-retry PAGE_ID
+```
+
+Find `PAGE_ID` in `panels_index.json` under `_annotations` or the chapter review
+API. This preserves failed-job history, retries its selected panels/instructions,
+and rejects stale requests after manual edits. `--queue-only` defers inference.
+Failures are never retried indefinitely in the background.
+
+Existing ink-only proposals are persisted and ordinary ingest/replay intentionally
+does not replace them. To explicitly replace a page's base masks with the new
+closed-region proposals, then re-run full-page semantics:
+
+```bash
+koma crop-retry PAGE_ID --rebuild-regions
+```
+
+This **replaces current base-mask edits** using the original detector extents;
+previous revisions and proposals remain available. Bubble assignments are retained
+as provisional, old ink refinements are dismissed with a rationale and rediscovered,
+and the new revision requires review. The command also works for previously
+completed/approved pages. Do not use it when intending only to replay approved masks.
+
 ## What is automatic, and what needs review
 
 `koma ingest` still uses the existing contour detector to identify panel
-proposals and propose RTL/LTR order. It now fills matching contours into masks,
-retains raw proposals, and proposes enclosed light regions as **unclassified
+proposals and propose RTL/LTR order. Base geometry now closes small border gaps
+with a 5×5 mask operation and floods from the exterior to retain enclosed interiors,
+including white, light-colored and screentone pixels. A credible filled region
+must cover at least 40% of its detector extent and contain at least 10% enclosed
+interior (or be at least 65% dark). These are provisional heuristic thresholds.
+When an open border fails that check, its full extent is retained with an explicit
+boundary warning, rather than treating disconnected ink as a panel. Overlapping
+extents still have disjoint provisional ownership and require correction.
+The stage retains raw proposals and proposes enclosed light regions as **unclassified
 balloon candidates**. Small overlapping panel proposals provisionally take
 precedence. Every initial boundary, component assignment and order proposal
 requires review. These are not reliable automatic hair/bubble segmentations.
@@ -158,13 +194,27 @@ their previous behavior.
 
 ## Validation and limits
 
+```bash
+uv pip install --python .venv/bin/python -e '.[dev]'
+KOMA_SKIP_OWNER=1 .venv/bin/python -m pytest
+make lint VENV=.venv
+```
+
+Pytest explicitly includes `src` for fresh-checkout collection; install dependencies
+and the package as above for CLI/subprocess tests. The web worker intentionally
+owns a separate thread-local SQLite connection; WAL and short transactions allow
+API reads/edits while the application owner lock serializes workers.
+
 Tests use synthetic pages only: displaced bubble/tail transfer, fine overfill,
 source alpha, disjoint masks, byte replay, scene holes, corrupt masks, stale edits,
 explicit approval, artifact registration and SQLite-only replay authority.
 The existing suite's hardcoded `/tmp/koma-qual` fixture was made hermetic.
 
-No real-page quality benchmark or GPU evaluation was performed: the private GPU
-host was unreachable from the development environment. Before production use,
+The local reviewer reported successful byte-level fidelity/replay and ownership
+rework on a real page, but found prompt echo and missing interiors in the earlier
+revision. Those have synthetic regression coverage; the revised code still needs
+a local recheck because the private GPU host is unreachable from this environment.
+Before production use,
 run a chapter on that host, inspect difficult overlapping layouts and check local
 VLM latency/JSON behavior. Synthetic tests cover model replies, durable failures,
 restart recovery, stale edits, and web approval/rework. Connected ink and light
@@ -172,3 +222,11 @@ regions are imperfect proposals; fine hair and intertwined silhouettes may need
 manual mask correction. There is no browser mask painter;
 the editable PNG checkout is the local editing interface. Existing panel creation/
 deletion and source-replacement workflows remain separate from this feature.
+
+For the local recheck, rebuild the affected page explicitly, run all ownership
+batches (default four objects), review and replay it, then record per-panel owned
+area/extent, missing-interior defects, owner/order changes, mask-edit count and
+review time. Inspect the source and scene union side by side: area coverage alone
+cannot certify correct ownership. The real-page correction-volume benchmark and
+SAM/Manga-Segment/Magi evaluation remain outstanding; no automatic quality claim
+is made for fine boundaries.

@@ -29,7 +29,7 @@ class ReworkBody(BaseModel):
     note: str = Field(default="", max_length=4000)
 
 
-class ConfirmBody(BaseModel):
+class PageConfirmBody(BaseModel):
     expected_revision: int = Field(ge=1)
     actor: str = Field(min_length=1, max_length=200)
     inspected_masks: bool = False
@@ -63,6 +63,9 @@ class CropRunner:
     def _run(self):
         from ..cli import _owner
 
+        # The worker owns/closes its thread's connection. SQLite connections
+        # are thread-affine; WAL and short transactions coordinate with API
+        # connections, while the owner lock serializes inference workers.
         store = KomaStore.open(self.data_dir)
         try:
             with _owner("crop-chapter", self.data_dir):
@@ -213,7 +216,7 @@ def install_crop_endpoints(app, data_dir: Path, *, client_factory=local_client):
         return {"job": job, "worker": runner.start()}
 
     @app.post("/api/v1/crops/pages/{page_id}/approve")
-    def approve(page_id: str, body: ConfirmBody, request: Request):
+    def approve_page(page_id: str, body: PageConfirmBody, request: Request):
         mutate(request)
         if not body.inspected_masks:
             raise HTTPException(400, "confirm visual inspection of masks, overfill and ownership")

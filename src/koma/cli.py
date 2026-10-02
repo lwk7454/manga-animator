@@ -253,6 +253,33 @@ def crop_chapter(
     typer.echo("Review ordered RGBA panels in the web app at /crops")
 
 
+@app.command("crop-retry")
+def crop_retry(
+    page_id: str = typer.Argument(..., help="SQLite page ID from panels_index.json or /crops API."),
+    rebuild_regions: bool = typer.Option(False, "--rebuild-regions",
+                                        help="Replace base masks with new region proposals."),
+    queue_only: bool = typer.Option(False, "--queue-only"),
+    data_dir: Path = typer.Option(None, "--data-dir", hidden=True),
+) -> None:
+    """Retry a failed crop request, optionally rebuilding old fragmented masks."""
+    from .application.crop_jobs import process_pending, retry_page
+    from .storage.domain_store import KomaStore
+
+    with _owner("crop-retry", data_dir):
+        store = KomaStore.open(_store(data_dir).data_dir)
+        try:
+            job = retry_page(store, page_id, rebuild_regions=rebuild_regions)
+            typer.echo(f"Queued crop request {job['id']}")
+            if not queue_only:
+                results = process_pending(store)
+                for result in results:
+                    typer.echo(str(result))
+                if any(r["state"] != "completed" for r in results):
+                    raise typer.Exit(1)
+        finally:
+            store.db.close()
+
+
 @app.command()
 def review(
     slug: str = typer.Argument(...),
@@ -655,4 +682,3 @@ def _default_data_dir() -> Path:
 
 if __name__ == "__main__":
     app()
-

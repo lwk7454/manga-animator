@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..crops import Annotation, bounds, source_pixels
 
-PROMPT_VERSION = "crop-ownership-v1"
+PROMPT_VERSION = "crop-ownership-v2"
 
 
 class Decision(BaseModel):
@@ -115,10 +115,14 @@ def adjudicate(
             prompt = {
                 **context,
                 "task": "reading_order",
+                "instruction": "Correct this provisional order using page flow and dialogue. "
+                "Return reading_order as an array containing each panel ID exactly once, "
+                "needs_review as a boolean, and rationale as your visual evidence. "
+                "If you cannot verify it, retain needs_review=true.",
                 "response": {
-                    "reading_order": "complete permutation of panel_ids",
-                    "needs_review": "boolean",
-                    "rationale": "brief evidence",
+                    "reading_order": result.reading_order,
+                    "needs_review": True,
+                    "rationale": result.order_rationale,
                 },
             }
             raw = client.chat_json(
@@ -127,7 +131,8 @@ def adjudicate(
                     {"role": "system", "content": system},
                     {"role": "user", "content": json.dumps(prompt)},
                 ],
-                images=[root / "page.png", root / "panel-ids.png"],
+                # One labeled page avoids the fragile duplicate-page prompt on 7B.
+                images=[root / "panel-ids.png"],
                 temperature=0,
                 max_tokens=3000,
             )
@@ -170,15 +175,21 @@ def adjudicate(
                 **context,
                 "task": "ownership",
                 "objects": items,
+                "instruction": "Correct the provisional decisions below using visual evidence. "
+                "Return one decision for every object ID. owner_panel must be an allowed ID "
+                "or null, kind must be bubble/artwork/sfx/not_object, needs_review must be a "
+                "boolean, and rationale must explain your decision. Unverified decisions "
+                "must retain needs_review=true.",
                 "response": {
                     "decisions": [
                         {
-                            "object_id": "one per supplied object",
-                            "owner_panel": "id or null",
-                            "kind": "bubble|artwork|sfx|not_object",
-                            "needs_review": "boolean",
-                            "rationale": "tail/dialogue/visual evidence; note boundary problems",
+                            "object_id": c.id,
+                            "owner_panel": c.owner_panel,
+                            "kind": c.kind,
+                            "needs_review": True,
+                            "rationale": c.rationale,
                         }
+                        for c in batch
                     ]
                 },
             }
