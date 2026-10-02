@@ -111,10 +111,9 @@ def _input_revision(
 ) -> str:
     import hashlib
 
-    pdir = store.chapter_dir(slug, chapter) / "panels" / panel.panel_id
     source = store.series_dir(slug) / "source" / page.source_path
     digest = hashlib.sha256()
-    for path in (source, pdir / "panel.png"):
+    for path in (source, store.panel_image_path(slug, chapter, panel.panel_id)):
         with path.open("rb") as fh:
             digest.update(hashlib.file_digest(fh, "sha256").digest())
     digest.update(
@@ -273,7 +272,7 @@ def script_chapter(
                 if revision is None:
                     raise LLMError("source page or panel crop is missing/unreadable")
                 entry["input_revision"] = revision
-                crop = store.chapter_dir(slug, chapter) / "panels" / panel.panel_id / "panel.png"
+                crop = store.panel_image_path(slug, chapter, panel.panel_id)
                 if not entry.get("caption"):
                     caption = vision_client.chat(
                         vision_model, [{"role": "user", "content": CAPTION_PROMPT}], images=[crop]

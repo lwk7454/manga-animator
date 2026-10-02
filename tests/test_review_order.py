@@ -67,7 +67,10 @@ def test_stale_expected_revision_conflicts(ingested):
 
 
 def test_review_ui_conflict_and_idempotence(ingested):
+    from tests.helpers import approve_fixture_crops
+
     store, slug = ingested
+    approve_fixture_crops(store.data_dir, slug)
     page = store.load_pages(slug)[0]
     ids = [pn.panel_id for pn in page.panels]
     _certify_by_ids(store, slug, 1, ids)

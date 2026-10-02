@@ -148,6 +148,23 @@ class OllamaClient:
 class OpenAICompatClient(OllamaClient):
     """Local OpenAI-compatible server, such as llama.cpp; no cloud fallback."""
 
+    def __init__(self, base_url=None, api_key=None, timeout=120.0):
+        from urllib.parse import urlsplit, urlunsplit
+
+        # Both the server root and conventional OpenAI /v1 base are accepted.
+        # Validate before normalizing so credentials/queries cannot be discarded.
+        try:
+            base = require_local_endpoint(
+                base_url or os.environ.get("KOMA_TEXT_BASE_URL", "http://127.0.0.1:11434")
+            )
+        except ValueError as exc:
+            raise LLMError(str(exc)) from exc
+        parsed = urlsplit(base)
+        path = parsed.path.rstrip("/")
+        if path.endswith("/v1"):
+            path = path[:-3]
+        super().__init__(urlunsplit(parsed._replace(path=path)), api_key, timeout)
+
     def chat(
         self,
         model: str,

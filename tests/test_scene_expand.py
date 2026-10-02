@@ -40,7 +40,7 @@ def test_scene_crop_writes_union(tmp_path: Path):
     # two "panels": left strip and right block
     cv2.rectangle(page, (10, 20), (110, 220), 255, -1)
     cv2.rectangle(page, (150, 60), (290, 300), 255, -1)
-    page_path = Path("/tmp/koma-qual/test_scene_page.png")
+    page_path = tmp_path / "test_scene_page.png"
     cv2.imwrite(str(page_path), page)
     geometry = {
         "a": {"bbox_x": 10, "bbox_y": 20, "bbox_w": 100, "bbox_h": 180,
@@ -48,7 +48,7 @@ def test_scene_crop_writes_union(tmp_path: Path):
         "b": {"bbox_x": 150, "bbox_y": 60, "bbox_w": 140, "bbox_h": 240,
               "page_w": 400, "page_h": 400},
     }
-    dst = Path("/tmp/koma-qual/test_scene_crop.png")
+    dst = tmp_path / "test_scene_crop.png"
     box = scene_crop(page_path, ["a", "b"], geometry, dst)
     img = cv2.imread(str(dst))
     assert img is not None

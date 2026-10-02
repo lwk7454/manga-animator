@@ -318,9 +318,13 @@ def import_chapter(
         rel = f"ch{chapter:02d}/{target_name}"
         existing = known_hashes.get(rel)
         if existing is not None:
+            if not target.exists() or digest != file_sha256(target):
+                raise ValueError("changed or missing source; explicit replacement is required")
             out.append(existing)
             continue
 
+        if target.exists() and digest != file_sha256(target):
+            raise ValueError("source target already contains different pixels")
         if not target.exists():
             shutil.copy2(f, target)
 
@@ -366,5 +370,15 @@ def import_chapter(
         for p in out:
             merged[p.source_path] = p
         store.save_pages(slug, list(merged.values()))
+        # Existing pages replay reviewed DB annotations, never redetect/reassign.
+        from ..application.crops import sync_crops
+
+        sync_crops(store, slug, out)
     store.update_chapter(slug, chapter, state="ingested")
     return out
+
+
+if __name__ == "__main__":
+    from ..application.crops import main
+
+    main()

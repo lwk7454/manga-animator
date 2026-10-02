@@ -172,6 +172,17 @@ class SeriesStore:
     def set_panel_state(self, slug: str, panel_id: str, target: PanelState) -> Panel:
         """Transition with lifecycle enforcement (before any side effect)."""
         _, panel = self.find_panel(slug, panel_id)
+        if target not in (PanelState.DETECTED, PanelState.AWAITING_ORDER_REVIEW):
+            from .crop_store import CropStore
+            from .database import DB_NAME
+            from .domain_store import KomaStore
+
+            if (self.data_dir / "state" / DB_NAME).exists():
+                canonical = KomaStore.open(self.data_dir)
+                try:
+                    CropStore(canonical.db).require_approved([panel_id])
+                finally:
+                    canonical.db.close()
         if not can_transition(panel.state, target):
             raise ValueError(
                 f"illegal transition {panel.state.value} → {target.value} for {panel_id}"
@@ -182,6 +193,32 @@ class SeriesStore:
 
     def chapter_dir(self, slug: str, chapter: int) -> Path:
         return self.series_dir(slug) / "chapters" / f"{chapter:02d}"
+
+    def panel_image_path(self, slug: str, chapter: int, panel_id: str) -> Path:
+        """Select approved mask pixels, retaining rectangle-only legacy compatibility."""
+        from .crop_store import CropStore
+        from .database import DB_NAME
+        from .domain_store import KomaStore
+
+        root = self.chapter_dir(slug, chapter) / "panels"
+        if not (self.data_dir / "state" / DB_NAME).exists():
+            return root / panel_id / "panel.png"
+        canonical = KomaStore.open(self.data_dir)
+        try:
+            for page in canonical.load_pages(slug, chapter):
+                row = CropStore(canonical.db).latest(page["id"])
+                if row is None:
+                    continue
+                annotation = json.loads(row["payload"])
+                if panel_id not in annotation["reading_order"]:
+                    continue
+                CropStore(canonical.db).require_approved([panel_id])
+                order = annotation["reading_order"].index(panel_id) + 1
+                return (root / "masks" / Path(page["source_path"]).name
+                        / row["annotation_hash"] / f"{order:03d}_{panel_id}.png")
+        finally:
+            canonical.db.close()
+        return root / panel_id / "panel.png"
 
     def load_chapters(self, slug: str) -> list[Chapter]:
         return self.load_series(slug).chapters

@@ -73,6 +73,31 @@ class FakeClient:
         return {"lines": [{"jp": "おはよう", key: "Good morning" if key == "en" else "早上好"}]}
 
 
+def approve_fixture_crops(data_dir: Path, slug: str) -> None:
+    """Explicit synthetic-fixture review; production never auto-approves masks."""
+    from koma.application.crops import replay_page
+    from koma.crops import Annotation
+    from koma.storage.crop_store import CropStore
+    from koma.storage.domain_store import KomaStore
+
+    store = KomaStore.open(data_dir)
+    try:
+        crops = CropStore(store.db)
+        for page in store.load_pages(slug, 1):
+            row = crops.latest(page["id"])
+            annotation = Annotation.model_validate_json(row["payload"])
+            annotation.order_needs_review = False
+            for item in [*annotation.panels, *annotation.components]:
+                item.needs_review = False
+            revision = crops.submit(page["id"], annotation, expected_revision=row["revision"])
+            crops.approve(
+                page["id"], expected_revision=revision, actor="synthetic-fixture-reviewer"
+            )
+            replay_page(store, slug, 1, page["id"])
+    finally:
+        store.db.close()
+
+
 def _script_store(tmp_path: Path) -> tuple[SeriesStore, str]:
     """Series with ordered panels advanced through the legacy GATED compatibility state."""
 
@@ -82,6 +107,7 @@ def _script_store(tmp_path: Path) -> tuple[SeriesStore, str]:
     d = tmp_path / "data"
     runner.invoke(app, ["new", "s", "--direction", "rtl", "--data-dir", str(d)])
     runner.invoke(app, ["ingest", "s", str(src), "--data-dir", str(d)])
+    approve_fixture_crops(d, "s")
     runner.invoke(app, ["certify", "s", "--page", "1", "--data-dir", str(d)])
     store = SeriesStore(d)
     # advance ORDERED → GATED (exercising the legacy compatibility state)

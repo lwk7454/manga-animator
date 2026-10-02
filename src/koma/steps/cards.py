@@ -233,8 +233,7 @@ def pick_canonical_panels(
         candidates.sort(key=lambda t: -t[1])
         top = [pid for pid, _ in candidates[:per_card]]
         candidates_with_paths = [
-            (pid, store.chapter_dir(slug, int(pid.split("_")[0][2:]))
-             / "panels" / pid / "panel.png")
+            (pid, store.panel_image_path(slug, int(pid.split("_")[0][2:]), pid))
             for pid in top
         ]
         available = [(pid, path) for pid, path in candidates_with_paths if path.is_file()]
